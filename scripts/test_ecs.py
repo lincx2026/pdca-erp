@@ -10,6 +10,9 @@ import shutil
 import subprocess
 import ecs_db
 import ecs_site
+import ecs_import
+import io
+import hashlib
 
 class EcsTests(unittest.TestCase):
     def setUp(self):
@@ -45,6 +48,39 @@ class EcsTests(unittest.TestCase):
         with patch.object(ecs_db.subprocess,'run',return_value=self.result(code=1)):
             self.assertFalse(ecs_db.backup(self.env,str(target)))
         self.assertFalse(target.exists())
+
+    def import_manifest(self,checksum=None):
+        (self.root/'.deploy-backups').mkdir(exist_ok=True)
+        manifest=self.root/'import.json'
+        manifest.write_text(json.dumps({'url':'https://private.oss-cn-hangzhou.aliyuncs.com/private',
+            'key':'a'*64,'sha256':checksum or hashlib.sha256(b'verified dump').hexdigest(),'counts':{'sys_user':1}}))
+        return manifest
+
+    def test_historical_import_refuses_existing_data_before_download(self):
+        with patch.object(ecs_import.subprocess,'run',return_value=self.result('1')),patch.object(ecs_import,'urlopen') as download:
+            with self.assertRaisesRegex(RuntimeError,'nonempty'):ecs_import.restore(self.env,self.import_manifest())
+        download.assert_not_called()
+
+    def test_historical_import_verifies_checksum_before_atomic_restore(self):
+        for valid in (True,False):
+            calls=[]
+            def run(arguments,**kwargs):
+                calls.append(arguments)
+                if arguments[0]=='psql':return self.result('0' if 'information_schema' in arguments[-1] else '1')
+                if arguments[0]=='openssl':Path(arguments[-1]).write_bytes(b'verified dump')
+                return self.result()
+            manifest=self.import_manifest(None if valid else 'b'*64)
+            marker=self.root/'.deploy-backups/initial-data-import.sha256'
+            if marker.exists():marker.unlink()
+            with patch.object(ecs_import.subprocess,'run',side_effect=run),patch.object(ecs_import,'urlopen',return_value=io.BytesIO(b'encrypted')):
+                if valid:ecs_import.restore(self.env,manifest)
+                else:
+                    with self.assertRaisesRegex(RuntimeError,'SHA-256'):ecs_import.restore(self.env,manifest)
+            restores=[c for c in calls if c[0]=='pg_restore']
+            self.assertEqual(1 if valid else 0,len(restores))
+            if valid:
+                self.assertIn('--single-transaction',restores[0])
+                self.assertNotIn('--clean',restores[0])
 
     @unittest.skipIf(os.name=='nt','Local PostgreSQL setup targets Linux')
     def test_scoped_authentication_preserves_existing_rules_and_restores_on_failure(self):

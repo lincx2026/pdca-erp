@@ -23,6 +23,7 @@ flowchart LR
 - 前端运行 `npm run build`。原有严格类型检查错误尚未修复，因此 `type-check` 暂未设为 CI 门禁。
 - `main` 检查通过后生成两个 `linux/amd64` 镜像，标签为提交 SHA；ECS 实际拉取 `@sha256:...` 摘要。
 - 镜像示例：`ghcr.io/lincx2026/pdca-erp-backend`、`ghcr.io/lincx2026/pdca-erp-frontend`。
+- Actions 将完整 Git bundle 经 SSH 传到临时目录，并核对 main 提交，ECS 无需直接访问 github.com；临时源码包在结束时清理。
 - 自动部署仅作用于 `main`；手动运行默认只检查和发布镜像，勾选 deploy 才执行 CD。仓库未设置 DEPLOY_ENABLED 时跳过 CD。
 - 部署按 production 并发组串行执行，运行中的部署不会被新提交取消；ECS 上另用 flock 加锁。落后于当前 main 的任务不会覆盖服务器。
 
@@ -59,7 +60,7 @@ ERP_TLS_KEY=/etc/letsencrypt/live/your-domain/privkey.pem
 ### 独立 ECS（默认 standalone 模式）
 
 安装 Git、Bash、Docker Engine、Compose v2、flock（util-linux）。部署账号需要目标目录写权限和 Docker 权限。
-ECS 需能访问 github.com、ghcr.io 及基础镜像仓库；网络不通时先配置网络出口或改用可访问的镜像仓库。
+ECS 需能访问 ghcr.io 及首次拉取 Redis 所需的镜像仓库；源码由 Actions 经 SSH 传输。网络不通时先配置网络出口或改用可访问的镜像仓库。
 安全组开放域名服务的 80/443，以及供 Actions 连接的 SSH 端口；数据库和 Redis 仅绑定回环地址。
 
 以部署账号执行：
@@ -127,6 +128,14 @@ bash deploy.sh rollback
 自动发布失败会恢复之前的 Git 提交和配置，并使用现有镜像回滚机制恢复应用；首次发布没有旧版本时只能报告失败，需修复后重跑。
 手工 `deploy.sh rollback` 仅恢复应用镜像，不回滚 Git 配置或数据库；配置回退需结合相应 Git 版本处理。数据库恢复应单独演练。
 不会执行历史 MySQL SQL、删除数据库卷或清理已有业务数据。
+
+## 首次迁入已验证的历史数据
+
+`scripts/stage_ecs_import.py` 将本机校验通过的 PostgreSQL dump 使用随机密码和 OpenSSL 加密，上传私有 OSS 临时对象，并通过 gh stdin 设置 production Secret `ERP_DATA_IMPORT`。临时下载地址有效期 4 小时，明文备份和解密密码不会进入 Git、镜像或 Actions 构建产物。工具依赖迁移 requirements 中的 oss2、OpenSSL 和 gh。
+
+服务器在备份目标空库后，验证下载文件的 SHA-256，以 `pg_restore --single-transaction --no-owner --no-privileges` 恢复，再逐表核对历史记录数；拒绝覆盖非空库。成功记录 `.deploy-backups/initial-data-import.sha256`，同一备份重复发布不会再次恢复。应用运行后仍需保留本机原始备份。
+
+首次导入并完成发布后，用 `stage_ecs_import.py --state <本机暂存记录> --delete` 删除临时 OSS 对象与 ERP_DATA_IMPORT Secret。该工具的暂存记录只含对象键和校验和，应保存在已忽略的 backup 目录。
 
 若 CI 失败，在 Test reports 下载 JUnit XML；前端构建错误在 Frontend production build。
 SSH 失败核对账号、公钥、主机指纹和安全组；拉取镜像失败核对 GHCR 权限和 ECS 网络出口。

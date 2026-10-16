@@ -27,6 +27,7 @@ cleanup() {
     ssh "${ssh_args[@]}" "$target" "rm -rf -- $auth_dir" || true
   fi
   rm -f "$key_dir/key" "$key_dir/known_hosts"
+  rm -f "$key_dir/source.bundle"
 }
 trap cleanup EXIT
 auth_dir="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-auth.XXXXXXXX')"
@@ -40,12 +41,19 @@ if [[ "$operation" == inspect ]]; then
   [[ "$ERP_DOMAIN" =~ ^[a-zA-Z0-9.-]+$ ]] || exit 2
   ssh "${ssh_args[@]}" "$target" "bash -s -- $DEPLOY_PATH $auth_dir/runtime.env $ERP_DOMAIN" < scripts/ecs_preflight.sh
 else
+  latest="$(GH_TOKEN="$REGISTRY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+  [[ "$latest" == "$GITHUB_SHA" ]] || { echo 'main has advanced; rerun the latest revision.'; exit 2; }
+  git bundle create "$key_dir/source.bundle" HEAD
+  ssh "${ssh_args[@]}" "$target" "cat > $auth_dir/source.bundle" < "$key_dir/source.bundle"
+  if [[ -n "${ERP_DATA_IMPORT:-}" ]]; then
+    printf '%s\n' "$ERP_DATA_IMPORT" | ssh "${ssh_args[@]}" "$target" "umask 077; cat > $auth_dir/data-import.json"
+  fi
   for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
     [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 2
   done
   printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_args[@]}" "$target" \
     "docker --config $auth_dir login ghcr.io -u $GITHUB_ACTOR --password-stdin"
   ssh "${ssh_args[@]}" "$target" \
-    "DOCKER_CONFIG=$auth_dir bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $BACKEND_IMAGE $FRONTEND_IMAGE $auth_dir/runtime.env" \
+    "DOCKER_CONFIG=$auth_dir bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $BACKEND_IMAGE $FRONTEND_IMAGE $auth_dir/runtime.env $auth_dir/source.bundle" \
     < scripts/ecs_release.sh
 fi

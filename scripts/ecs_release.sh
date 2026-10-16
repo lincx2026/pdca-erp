@@ -7,6 +7,7 @@ REPOSITORY="${3:?repository required}"
 export BACKEND_IMAGE="${4:?backend digest required}"
 export FRONTEND_IMAGE="${5:?frontend digest required}"
 RUNTIME_ENV="${6:-}"
+SOURCE_BUNDLE="${7:-}"
 [[ "$ROOT" =~ ^/[a-zA-Z0-9_/-]+$ && "$ROOT" != / && "$ROOT" != *..* ]] || exit 2
 [[ "$REVISION" =~ ^[a-f0-9]{40}$ && "$REPOSITORY" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$ ]] || exit 2
 for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
@@ -15,10 +16,21 @@ done
 if [[ -n "$RUNTIME_ENV" ]]; then
   [[ "$RUNTIME_ENV" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+/runtime.env$ ]] || exit 2
 fi
+if [[ -n "$SOURCE_BUNDLE" ]]; then
+  [[ "$SOURCE_BUNDLE" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+/source.bundle$ && -s "$SOURCE_BUNDLE" ]] || exit 2
+fi
 if [[ ! -d "$ROOT" ]]; then
   [[ -s "$RUNTIME_ENV" ]] || { echo 'New ECS deployment requires ERP_ENV.'; exit 2; }
   python3 "$(dirname "$RUNTIME_ENV")/ecs_db.py" "$RUNTIME_ENV" --prepare-local
-  git clone --branch main "https://github.com/$REPOSITORY.git" "$ROOT"
+  if [[ -n "$SOURCE_BUNDLE" ]]; then
+    git init "$ROOT"
+    git -C "$ROOT" fetch "$SOURCE_BUNDLE" HEAD
+    [[ "$(git -C "$ROOT" rev-parse FETCH_HEAD)" == "$REVISION" ]] || exit 2
+    git -C "$ROOT" checkout --detach "$REVISION"
+    git -C "$ROOT" remote add origin "https://github.com/$REPOSITORY.git"
+  else
+    git clone --branch main "https://github.com/$REPOSITORY.git" "$ROOT"
+  fi
 fi
 cd "$ROOT"
 [[ -d .git ]] || { echo 'Deployment path is not a Git repository.'; exit 2; }
@@ -44,7 +56,11 @@ if [[ "$DEPLOY_MODE" == shared ]]; then
   [[ -f "$checker" ]] || checker=scripts/ecs_db.py
   python3 "$checker" .env --prepare-local
 fi
-git fetch --no-tags "https://github.com/$REPOSITORY.git" main
+if [[ -n "$SOURCE_BUNDLE" ]]; then
+  git fetch "$SOURCE_BUNDLE" HEAD
+else
+  git fetch --no-tags "https://github.com/$REPOSITORY.git" main
+fi
 git merge-base --is-ancestor "$REVISION" FETCH_HEAD || {
   echo 'Requested revision is not part of main.'; exit 2;
 }
@@ -55,6 +71,9 @@ git checkout --detach "$REVISION"
 mkdir -p .deploy-backups
 if [[ "$DEPLOY_MODE" == shared ]]; then
   python3 scripts/ecs_db.py .env --backup ".deploy-backups/database-before-$(date -u +%Y%m%dT%H%M%SZ)-$$.dump"
+fi
+if [[ -n "$RUNTIME_ENV" && -s "${RUNTIME_ENV%/runtime.env}/data-import.json" ]]; then
+  python3 scripts/ecs_import.py .env "${RUNTIME_ENV%/runtime.env}/data-import.json"
 fi
 release() {
   if [[ "$DEPLOY_MODE" == shared ]]; then

@@ -178,6 +178,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: SSH deployment
         shell: bash
         env:
@@ -191,4 +192,5 @@ jobs:
           BACKEND_IMAGE: ${{ needs.publish.outputs.backend }}
           FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend }}
           ERP_ENV: ${{ secrets.ERP_ENV }}
+          ERP_DATA_IMPORT: ${{ secrets.ERP_DATA_IMPORT }}
         run: bash scripts/ecs_ssh.sh deploy
