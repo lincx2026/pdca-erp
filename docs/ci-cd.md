@@ -21,7 +21,7 @@ flowchart LR
 - PR 只测试和构建，不访问部署凭据、不发布镜像。
 - CI 使用独立 PostgreSQL/Redis，执行 5 项 OSS 单元测试、6 项 PostgreSQL 集成测试及部署脚本测试，不连接生产数据库或 OSS。
 - 前端运行 `npm run build`。原有严格类型检查错误尚未修复，因此 `type-check` 暂未设为 CI 门禁。
-- `main` 检查通过后生成两个 `linux/amd64` 镜像，标签为提交 SHA；ECS 实际拉取 `@sha256:...` 摘要。
+- `main` 检查通过后生成两个 `linux/amd64` 镜像，标签为提交 SHA；Actions 按 `@sha256:...` 摘要拉取，再与专用 Redis 镜像一起经 SSH 压缩流传到 ECS。ECS 启动前核对加载后的镜像 ID，使用包含提交 SHA 的项目专用本地标签。
 - 镜像示例：`ghcr.io/lincx2026/pdca-erp-backend`、`ghcr.io/lincx2026/pdca-erp-frontend`。
 - Actions 将完整 Git bundle 经 SSH 传到临时目录，并核对 main 提交，ECS 无需直接访问 github.com；临时源码包在结束时清理。
 - 自动部署仅作用于 `main`；手动运行默认只检查和发布镜像，勾选 deploy 才执行 CD。仓库未设置 DEPLOY_ENABLED 时跳过 CD。
@@ -60,7 +60,7 @@ ERP_TLS_KEY=/etc/letsencrypt/live/your-domain/privkey.pem
 ### 独立 ECS（默认 standalone 模式）
 
 安装 Git、Bash、Docker Engine、Compose v2、flock（util-linux）。部署账号需要目标目录写权限和 Docker 权限。
-ECS 需能访问 ghcr.io 及首次拉取 Redis 所需的镜像仓库；源码由 Actions 经 SSH 传输。网络不通时先配置网络出口或改用可访问的镜像仓库。
+源码和镜像均由 Actions 经 SSH 传输，ECS 无需直接访问 GitHub、GHCR 或 Docker Hub。首次数据迁入需要访问 OSS；自动证书申请需要访问 ACME 服务。
 安全组开放域名服务的 80/443，以及供 Actions 连接的 SSH 端口；数据库和 Redis 仅绑定回环地址。
 
 以部署账号执行：
@@ -108,7 +108,7 @@ mkdir -p docker/nginx/ssl
 
 GHCR 发布使用工作流自动生成的 GITHUB_TOKEN，无需另填长期仓库令牌。工作流给发布 job packages:write，部署 job packages:read；镜像 source 标签关联本仓库。
 首次发布后检查 GHCR 包的 Actions access 是否允许本仓库读取；不要公开业务镜像来绕过权限问题。
-ECS 登录 GHCR 使用该次任务的临时令牌和临时 Docker 配置目录，任务结束后清理，不将令牌长期保存到服务器默认 Docker 配置。
+Actions 拉取 GHCR 使用该次任务的临时令牌和临时 Docker 配置目录，任务结束后清理；服务器不保存仓库登录令牌。成功发布的 GHCR 源摘要记录在 `.deploy-backups/source-images.env`，实际运行镜像记录在 `current.env`。
 
 ## 发布、回滚与排查
 

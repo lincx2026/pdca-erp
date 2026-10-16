@@ -12,6 +12,8 @@ mkdir -p "$BACKUPS"
 COMPOSE=(docker compose --env-file "$ROOT/.env")
 if [[ -f "$BACKUPS/current.env" ]]; then
   COMPOSE+=(--env-file "$BACKUPS/current.env")
+  ERP_REDIS_IMAGE="${ERP_REDIS_IMAGE:-$(sed -n 's/^ERP_REDIS_IMAGE=//p' "$BACKUPS/current.env" | tail -n 1)}"
+  export ERP_REDIS_IMAGE
 fi
 COMPOSE+=(-f "$ROOT/docker/docker-compose.yml")
 DEPLOY_MODE="${DEPLOY_MODE:-$(sed -n 's/^DEPLOY_MODE=//p' "$ROOT/.env" | tail -n 1)}"
@@ -77,6 +79,7 @@ rollback() {
 persist_images() {
   [[ -n "$BACKEND_IMAGE" && -n "$FRONTEND_IMAGE" ]] || return 1
   printf 'BACKEND_IMAGE=%s\nFRONTEND_IMAGE=%s\n' "$BACKEND_IMAGE" "$FRONTEND_IMAGE" > "$BACKUPS/current.env.tmp"
+  if [[ -n "${ERP_REDIS_IMAGE:-}" ]]; then printf 'ERP_REDIS_IMAGE=%s\n' "$ERP_REDIS_IMAGE" >> "$BACKUPS/current.env.tmp"; fi
   mv "$BACKUPS/current.env.tmp" "$BACKUPS/current.env"
 }
 
@@ -98,11 +101,21 @@ case "$SCOPE" in
   status) "${COMPOSE[@]}" ps; exit 0 ;;
   rollback) rollback; exit 0 ;;
   sql) echo 'Add a versioned migration under admin/src/main/resources/db/migration, then deploy be. No legacy SQL is executed.'; exit 2 ;;
-  all|be|fe|images) ;;
-  *) echo 'Usage: bash deploy.sh all|be|fe|images|status|rollback'; exit 2 ;;
+  all|be|fe|images|preloaded) ;;
+  *) echo 'Usage: bash deploy.sh all|be|fe|images|preloaded|status|rollback'; exit 2 ;;
 esac
 
-if [[ "$SCOPE" == images ]]; then
+if [[ "$SCOPE" == preloaded ]]; then
+  [[ "${BACKEND_IMAGE:-}" =~ ^pcba-erp/backend:ci-[a-f0-9]{40}$ && "${FRONTEND_IMAGE:-}" =~ ^pcba-erp/frontend:ci-[a-f0-9]{40}$ ]] || exit 2
+  for service in BACKEND FRONTEND; do
+    image_var="${service}_IMAGE"; id_var="${service}_IMAGE_ID"
+    [[ "${!id_var:-}" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 2
+    [[ "$(docker image inspect --format '{{.Id}}' "${!image_var}")" == "${!id_var}" ]] || { echo 'Loaded image ID mismatch.'; exit 2; }
+  done
+  [[ "${ERP_REDIS_IMAGE:-}" =~ ^pcba-erp/redis:ci-[a-f0-9]{40}$ && "${ERP_REDIS_IMAGE_ID:-}" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 2
+  [[ "$(docker image inspect --format '{{.Id}}' "$ERP_REDIS_IMAGE")" == "$ERP_REDIS_IMAGE_ID" ]] || exit 2
+  export BACKEND_IMAGE FRONTEND_IMAGE
+elif [[ "$SCOPE" == images ]]; then
   for image in "${BACKEND_IMAGE:-}" "${FRONTEND_IMAGE:-}"; do
     [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || {
       echo 'images requires BACKEND_IMAGE and FRONTEND_IMAGE pinned to GHCR SHA-256 digests.'; exit 2;

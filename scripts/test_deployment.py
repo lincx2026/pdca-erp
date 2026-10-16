@@ -18,7 +18,9 @@ set -eu
 printf '%s\n' "$*" >> "$PCBA_TEST_LOG"
 if [[ "$1" == run && "${PCBA_TEST_FAIL_BUILD:-0}" == 1 ]]; then exit 3; fi
 if [[ "$1" == pull && "${PCBA_TEST_FAIL_PULL:-0}" == 1 ]]; then exit 4; fi
-if [[ "$1" == inspect ]]; then
+if [[ "$1" == image && "$2" == inspect ]]; then
+  printf 'sha256:'; printf 'a%.0s' {1..64}; printf '\n'
+elif [[ "$1" == inspect ]]; then
   if [[ "$*" == *Config.Image* ]]; then echo "pcba-erp/test:old"
   elif [[ "$*" == *State.Health* ]]; then
     if [[ -f "$PCBA_TEST_STATE" ]]; then echo exited; else echo healthy; fi
@@ -100,6 +102,25 @@ class DeploymentTests(unittest.TestCase):
         result,log,_=self.run_release(scope="images",BACKEND_IMAGE="ghcr.io/test/erp:latest",FRONTEND_IMAGE="ghcr.io/test/erp:latest")
         self.assertEqual(2,result.returncode,result.stdout)
         self.assertNotIn("pull ",log)
+
+    def test_preloaded_images_are_verified_without_registry_requests(self):
+        revision='c'*40;identity='sha256:'+'a'*64
+        result,log,directory=self.run_release(scope='preloaded',DEPLOY_MODE='shared',
+            BACKEND_IMAGE='pcba-erp/backend:ci-'+revision,FRONTEND_IMAGE='pcba-erp/frontend:ci-'+revision,
+            BACKEND_IMAGE_ID=identity,FRONTEND_IMAGE_ID=identity,
+            ERP_REDIS_IMAGE='pcba-erp/redis:ci-'+revision,ERP_REDIS_IMAGE_ID=identity)
+        self.assertEqual(0,result.returncode,result.stdout)
+        self.assertNotIn('pull ',log)
+        self.assertLess(log.index('image inspect'),log.index('up -d redis'))
+        self.assertIn('ERP_REDIS_IMAGE=pcba-erp/redis:ci-',(directory/'.deploy-backups/current.env').read_text())
+
+    def test_preloaded_image_mismatch_cannot_switch_services(self):
+        revision='c'*40;identity='sha256:'+'b'*64
+        result,log,_=self.run_release(scope='preloaded',
+            BACKEND_IMAGE='pcba-erp/backend:ci-'+revision,FRONTEND_IMAGE='pcba-erp/frontend:ci-'+revision,
+            BACKEND_IMAGE_ID=identity,FRONTEND_IMAGE_ID=identity)
+        self.assertNotEqual(0,result.returncode)
+        self.assertNotIn('up -d',log)
 
     def run_ecs_release(self,**flags):
         _,_,directory=self.run_release(scope="status")

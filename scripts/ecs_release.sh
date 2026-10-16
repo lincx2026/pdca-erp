@@ -10,9 +10,14 @@ RUNTIME_ENV="${6:-}"
 SOURCE_BUNDLE="${7:-}"
 [[ "$ROOT" =~ ^/[a-zA-Z0-9_/-]+$ && "$ROOT" != / && "$ROOT" != *..* ]] || exit 2
 [[ "$REVISION" =~ ^[a-f0-9]{40}$ && "$REPOSITORY" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$ ]] || exit 2
-for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
-  [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 2
-done
+if [[ "${PCBA_PRELOADED:-0}" == 1 ]]; then
+  [[ "$BACKEND_IMAGE" == "pcba-erp/backend:ci-$REVISION" && "$FRONTEND_IMAGE" == "pcba-erp/frontend:ci-$REVISION" ]] || exit 2
+  for id in "${BACKEND_IMAGE_ID:-}" "${FRONTEND_IMAGE_ID:-}"; do [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 2; done
+else
+  for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+    [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 2
+  done
+fi
 if [[ -n "$RUNTIME_ENV" ]]; then
   [[ "$RUNTIME_ENV" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+/runtime.env$ ]] || exit 2
 fi
@@ -79,12 +84,19 @@ release() {
   if [[ "$DEPLOY_MODE" == shared ]]; then
     python3 scripts/ecs_site.py .env --prepare-certificate || return $?
   fi
-  bash deploy.sh images || return $?
+  if [[ "${PCBA_PRELOADED:-0}" == 1 ]]; then
+    bash deploy.sh preloaded || return $?
+  else
+    bash deploy.sh images || return $?
+  fi
   if [[ "$DEPLOY_MODE" == shared ]]; then
     python3 scripts/ecs_site.py .env || { bash deploy.sh rollback || true; return 1; }
   fi
 }
 if release; then
+  if [[ -s "${RUNTIME_ENV%/runtime.env}/source-images.env" ]]; then
+    cp "${RUNTIME_ENV%/runtime.env}/source-images.env" .deploy-backups/source-images.env
+  fi
   printf '%s\n' "$REVISION" > .deploy-backups/revision
 else
   result=$?

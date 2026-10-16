@@ -28,6 +28,7 @@ cleanup() {
   fi
   rm -f "$key_dir/key" "$key_dir/known_hosts"
   rm -f "$key_dir/source.bundle"
+  if [[ -d "$key_dir/docker" ]]; then rm -rf -- "$key_dir/docker"; fi
 }
 trap cleanup EXIT
 auth_dir="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-auth.XXXXXXXX')"
@@ -51,9 +52,25 @@ else
   for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
     [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 2
   done
-  printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_args[@]}" "$target" \
-    "docker --config $auth_dir login ghcr.io -u $GITHUB_ACTOR --password-stdin"
+  printf 'BACKEND_SOURCE=%s\nFRONTEND_SOURCE=%s\n' "$BACKEND_IMAGE" "$FRONTEND_IMAGE" | \
+    ssh "${ssh_args[@]}" "$target" "cat > $auth_dir/source-images.env"
+  install -d -m 700 "$key_dir/docker"
+  printf '%s' "$REGISTRY_TOKEN" | docker --config "$key_dir/docker" login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+  for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do docker --config "$key_dir/docker" pull "$image"; done
+  docker pull redis:7.2.4-alpine
+  backend_id="$(docker image inspect --format '{{.Id}}' "$BACKEND_IMAGE")"
+  frontend_id="$(docker image inspect --format '{{.Id}}' "$FRONTEND_IMAGE")"
+  redis_id="$(docker image inspect --format '{{.Id}}' redis:7.2.4-alpine)"
+  for id in "$backend_id" "$frontend_id" "$redis_id"; do [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 2; done
+  loaded_backend="pcba-erp/backend:ci-$GITHUB_SHA"; loaded_frontend="pcba-erp/frontend:ci-$GITHUB_SHA"
+  loaded_redis="pcba-erp/redis:ci-$GITHUB_SHA"
+  docker tag "$BACKEND_IMAGE" "$loaded_backend"; docker tag "$FRONTEND_IMAGE" "$loaded_frontend"
+  docker tag redis:7.2.4-alpine "$loaded_redis"
+  # A cancelled SSH session can leave its Docker pull client holding the old lock.
+  ssh "${ssh_args[@]}" "$target" "pkill -TERM -f '^docker pull ghcr.io/lincx2026/pdca-erp-(backend|frontend)@sha256:[a-f0-9]{64}$' || true"
+  docker save "$loaded_backend" "$loaded_frontend" "$loaded_redis" | gzip -1 | \
+    ssh "${ssh_args[@]}" "$target" "bash -o pipefail -c 'gzip -d | docker load'"
   ssh "${ssh_args[@]}" "$target" \
-    "DOCKER_CONFIG=$auth_dir bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $BACKEND_IMAGE $FRONTEND_IMAGE $auth_dir/runtime.env $auth_dir/source.bundle" \
+    "PCBA_PRELOADED=1 BACKEND_IMAGE_ID=$backend_id FRONTEND_IMAGE_ID=$frontend_id ERP_REDIS_IMAGE=$loaded_redis ERP_REDIS_IMAGE_ID=$redis_id bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $loaded_backend $loaded_frontend $auth_dir/runtime.env $auth_dir/source.bundle" \
     < scripts/ecs_release.sh
 fi
