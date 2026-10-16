@@ -18,7 +18,7 @@ public final class DatabaseMigration {
         switch (command) {
             case "migrate" -> config.load().migrate();
             case "validate" -> config.load().validate();
-            case "baseline-import" -> {
+            case "baseline-import", "baseline-source" -> {
                 try (var connection = DriverManager.getConnection(url, user, password);
                      var statement = connection.createStatement();
                      var result = statement.executeQuery("SELECT COUNT(*) FROM _pcba_mysql_import")) {
@@ -26,9 +26,12 @@ public final class DatabaseMigration {
                         throw new IllegalStateException("A completed, verified MySQL import is required before baselining");
                     }
                 }
-                config.baselineVersion("3").baselineDescription("Verified MySQL import").load().baseline();
+                // V4-V7 only repair legacy data/menu seeds. A complete production
+                // snapshot already supplies authoritative data and must retain it.
+                String version = command.equals("baseline-source") ? "7" : "3";
+                config.baselineVersion(version).baselineDescription("Verified MySQL import").load().baseline();
             }
-            default -> throw new IllegalArgumentException("Use migrate, validate or baseline-import");
+            default -> throw new IllegalArgumentException("Use migrate, validate, baseline-import or baseline-source");
         }
     }
 

@@ -16,6 +16,8 @@ def main():
     parser.add_argument('--checksum')
     parser.add_argument('--openssl',default='openssl')
     parser.add_argument('--state',required=True)
+    parser.add_argument('--secret-name',choices=['ERP_DATA_IMPORT','ERP_REIMPORT'],default='ERP_DATA_IMPORT')
+    parser.add_argument('--fingerprints',help='PostgreSQL content fingerprints for a staged replacement')
     parser.add_argument('--delete',action='store_true')
     args=parser.parse_args()
     config=settings(args.env_file)
@@ -24,8 +26,9 @@ def main():
     if args.delete:
         state=json.loads(Path(args.state).read_text())
         if not state['object'].startswith('_deployment-transfer/'):raise ValueError('Unsafe transfer object')
+        if state.get('secret','ERP_DATA_IMPORT') not in ('ERP_DATA_IMPORT','ERP_REIMPORT'):raise ValueError('Unsafe import secret')
         bucket.delete_object(state['object'])
-        subprocess.run(['gh','secret','delete','ERP_DATA_IMPORT','--repo','lincx2026/pdca-erp','--env','production'],check=True)
+        subprocess.run(['gh','secret','delete',state.get('secret','ERP_DATA_IMPORT'),'--repo','lincx2026/pdca-erp','--env','production'],check=True)
         print('Temporary encrypted OSS object and GitHub import secret removed.');return
     content=Path(args.dump).read_bytes();checksum=hashlib.sha256(content).hexdigest()
     if checksum!=Path(args.checksum).read_text().split()[0]:raise ValueError('Backup checksum mismatch')
@@ -41,10 +44,12 @@ def main():
             env=dict(os.environ,PCBA_IMPORT_PASSWORD=key),check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         object_key='_deployment-transfer/'+uuid.uuid4().hex+'.pg.enc'
         bucket.put_object(object_key,encrypted.read_bytes(),headers={'x-oss-object-acl':'private','Content-Type':'application/octet-stream'})
-    Path(args.state).write_text(json.dumps({'object':object_key,'sha256':checksum}),encoding='utf-8')
+    Path(args.state).write_text(json.dumps({'object':object_key,'sha256':checksum,'secret':args.secret_name}),encoding='utf-8')
     manifest={'url':bucket.sign_url('GET',object_key,4*3600),'key':key,'sha256':checksum,'salt_length':8,
         'counts':{table:value['rows'] for table,value in verified.items()}}
-    subprocess.run(['gh','secret','set','ERP_DATA_IMPORT','--repo','lincx2026/pdca-erp','--env','production'],
+    if args.fingerprints:
+        manifest['fingerprints']=json.loads(Path(args.fingerprints).read_text(encoding='utf-8'))
+    subprocess.run(['gh','secret','set',args.secret_name,'--repo','lincx2026/pdca-erp','--env','production'],
         input=json.dumps(manifest),universal_newlines=True,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     print('Verified backup encrypted and staged privately; one-time import secret configured.')
 

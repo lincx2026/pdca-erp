@@ -26,6 +26,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", default=str(root/".env"))
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--preserve-source-data", action="store_true",
+                        help="Preserve authoritative production menus/data; skip historical V4-V7 data repairs")
     parser.add_argument("--jar", default=str(root/"backend/pcba-erp-admin/target/pcba-erp.jar"))
     args = parser.parse_args()
     env = load_env(args.env_file)
@@ -95,7 +97,8 @@ def main():
         target.commit()
         # Let Flyway create its own history rather than fabricating history rows.
         command = ["java", "-Dloader.main=com.pcba.erp.DatabaseMigration", "-cp", args.jar,
-                   "org.springframework.boot.loader.launch.PropertiesLauncher", "baseline-import"]
+                   "org.springframework.boot.loader.launch.PropertiesLauncher",
+                   "baseline-source" if args.preserve_source_data else "baseline-import"]
         subprocess.run(command, env=env, check=True)
         print("Import verified and baselined. Configure OSS and validate the application before switching traffic.")
     except Exception:

@@ -1,0 +1,65 @@
+name: ECS verified data replacement
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Back up, stage a verified snapshot, or activate the staged database
+        required: true
+        type: choice
+        options: [backup, stage, activate]
+        default: backup
+permissions:
+  contents: read
+concurrency:
+  group: production-ecs
+  cancel-in-progress: false
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verified ERP database operation
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+          ECS_KNOWN_HOSTS: ${{ secrets.ECS_KNOWN_HOSTS }}
+          ECS_PORT: ${{ vars.ECS_PORT || '22' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/pcba-erp' }}
+          ERP_REIMPORT: ${{ secrets.ERP_REIMPORT }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$OPERATION" =~ ^(backup|stage|activate)$ ]]
+          [[ "$ECS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$ECS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+          [[ "$ECS_PORT" =~ ^[0-9]{1,5}$ && "$ECS_PORT" -gt 0 && "$ECS_PORT" -lt 65536 ]]
+          [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9_/-]+$ && "$DEPLOY_PATH" != / && "$DEPLOY_PATH" != *..* ]]
+          key_dir="$RUNNER_TEMP/reimport-ssh"
+          install -d -m 700 "$key_dir"
+          printf '%s\n' "$ECS_SSH_KEY" > "$key_dir/key"
+          printf '%s\n' "$ECS_KNOWN_HOSTS" > "$key_dir/known_hosts"
+          chmod 600 "$key_dir/key" "$key_dir/known_hosts"
+          ssh_args=(-i "$key_dir/key" -p "$ECS_PORT" -o BatchMode=yes -o ConnectTimeout=20
+            -o ServerAliveInterval=30 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$key_dir/known_hosts")
+          target="$ECS_USER@$ECS_HOST"
+          remote="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-reimport.XXXXXXXX')"
+          [[ "$remote" =~ ^/tmp/pcba-erp-reimport\.[a-zA-Z0-9]+$ ]]
+          cleanup() {
+            ssh "${ssh_args[@]}" "$target" "rm -rf -- $remote" || true
+            rm -f "$key_dir/key" "$key_dir/known_hosts"
+          }
+          trap cleanup EXIT
+          for file in ecs_reimport.py ecs_db.py; do
+            ssh "${ssh_args[@]}" "$target" "cat > $remote/$file" < "scripts/$file"
+          done
+          if [[ "$OPERATION" != backup ]]; then
+            [[ -n "$ERP_REIMPORT" ]]
+            printf '%s' "$ERP_REIMPORT" | ssh "${ssh_args[@]}" "$target" "umask 077; cat > $remote/manifest.json"
+          fi
+          ssh "${ssh_args[@]}" "$target" "python3 -u $remote/ecs_reimport.py $DEPLOY_PATH $OPERATION $remote/manifest.json"

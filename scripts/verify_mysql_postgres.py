@@ -41,6 +41,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file",default=str(root/".env"))
     parser.add_argument("--report",required=True)
+    parser.add_argument("--fingerprints",help="Write PostgreSQL table fingerprints for verified ECS replacement")
     args=parser.parse_args(); env=load_env(args.env_file)
     source=pymysql.connect(host=env["MYSQL_HOST"],port=int(env.get("MYSQL_PORT","3306")),
         user=env["MYSQL_USER"],password=env["MYSQL_PASSWORD"],database=env["MYSQL_DATABASE"],
@@ -71,6 +72,12 @@ def main():
         Path(args.report).write_text(json.dumps(report,indent=2),encoding="utf-8")
         mismatches=[t for t,r in report.items() if not r["matches"]]
         if mismatches: raise RuntimeError("Content mismatch: "+", ".join(mismatches))
+        if args.fingerprints:
+            from ecs_reimport import fingerprint_sql
+            target.execute("SET TIME ZONE 'Asia/Shanghai'")
+            tables=target.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name").fetchall()
+            fingerprints={table:target.execute(fingerprint_sql(table)).fetchone()[0] for table, in tables}
+            Path(args.fingerprints).write_text(json.dumps(fingerprints,indent=2),encoding='utf-8')
         print(f"Verified all values: {len(report)} tables, {sum(r['rows'] for r in report.values())} rows.")
     finally:
         target.rollback();target.close();source.rollback();source.close()

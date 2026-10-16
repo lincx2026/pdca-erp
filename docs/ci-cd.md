@@ -137,6 +137,18 @@ bash deploy.sh rollback
 
 首次导入并完成发布后，用 `stage_ecs_import.py --state <本机暂存记录> --delete` 删除临时 OSS 对象与 ERP_DATA_IMPORT Secret。该工具的暂存记录只含对象键和校验和，应保存在已忽略的 backup 目录。
 
+## 已有新站数据的完整替换
+
+仅在明确需要以旧生产库替换新站数据时使用 `ECS verified data replacement` 手动工作流；它不访问或修改旧服务器。
+
+1. 从旧库的一致性只读快照导入独立 PostgreSQL 库，使用 `migrate_mysql_to_postgres.py --execute --preserve-source-data`。此模式按版本 7 建立 Flyway 基线，保留源库菜单及业务数据，不执行 V4–V7 的历史数据修复；后续新迁移仍正常执行。
+2. 用 `verify_mysql_postgres.py --report <校验报告> --fingerprints <内容指纹 JSON>` 核对全部字段，导出 PostgreSQL 自定义格式 dump 和 SHA-256。用 `stage_ecs_import.py --secret-name ERP_REIMPORT --fingerprints <内容指纹 JSON>` 加密暂存。
+3. 手动执行工作流 `backup`、`stage`，查看备份和全部内容校验结果。`stage` 在独立临时数据库恢复，线上数据保持原样。
+4. 执行 `activate`：短暂停止新站 ERP 后端，再次备份数据库及专属 Redis；旧库改名保留，已校验临时库接替原库名，清空专属 Redis 缓存并启动原后端。健康检查失败自动恢复旧库和缓存，不删除任何数据库。
+5. 核对菜单、角色和业务数据后，用暂存记录执行 `stage_ecs_import.py --state <记录> --delete`，删除临时 OSS 对象及 ERP_REIMPORT Secret。
+
+所有数据库备份、替换状态及回滚库名保存在服务器 `.deploy-backups/`；旧库以 `pcba_erp_before_` 开头。此操作只支持本机共享模式的专用 `pcba_erp`，不会操作同机其它数据库或 Redis。旧服务器后续写入不会自动同步到新站。
+
 若 CI 失败，在 Test reports 下载 JUnit XML；前端构建错误在 Frontend production build。
 SSH 失败核对账号、公钥、主机指纹和安全组；拉取镜像失败核对 GHCR 权限和 ECS 网络出口。
 健康检查失败在 ECS 使用 Compose logs 查看原因，日志输出不要包含 `.env` 或完整 Compose 展开配置。

@@ -61,6 +61,7 @@ jobs:
           bash -n deploy.sh scripts/ecs_*.sh
           python3 scripts/test_deployment.py
           python3 scripts/test_ecs.py
+          python3 scripts/test_reimport.py
       - name: Backend tests and package
         working-directory: backend
         env:
