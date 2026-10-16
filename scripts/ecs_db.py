@@ -23,7 +23,7 @@ def check(path,inspect=False):
     result=subprocess.run(['psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-c',query],env=environment,
         stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
     if result.returncode:
-        reasons={'password authentication failed':'PASSWORD_REJECTED','does not exist':'DATABASE_OR_ROLE_MISSING',
+        reasons={'Ident authentication failed':'IDENT_POLICY_REJECTED','password authentication failed':'PASSWORD_REJECTED','does not exist':'DATABASE_OR_ROLE_MISSING',
             'no pg_hba.conf entry':'CONNECTION_POLICY_REJECTED','Connection refused':'CONNECTION_REFUSED','timeout':'CONNECTION_TIMEOUT'}
         reason=next((v for k,v in reasons.items() if k in result.stderr),'CONNECTION_FAILED')
         print('Configured PostgreSQL authentication: FAIL ('+reason+')')

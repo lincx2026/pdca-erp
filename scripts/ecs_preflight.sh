@@ -22,6 +22,16 @@ import re,subprocess,sys,shlex
 from pathlib import Path
 checker=Path(sys.argv[1]).parent/'ecs_db.py'
 subprocess.run(['python3',str(checker),sys.argv[1],'--inspect'])
+sys.path.insert(0,str(checker.parent))
+from ecs_db import settings
+config=settings(sys.argv[1])
+if __import__('os').geteuid()==0:
+    database=config.get('POSTGRES_DB','pcba_erp').replace("'","''")
+    role=config.get('POSTGRES_USER','pcba').replace("'","''")
+    query="SELECT 'Target database exists: '||EXISTS(SELECT FROM pg_database WHERE datname='"+database+"'); SELECT 'Target login role exists: '||EXISTS(SELECT FROM pg_roles WHERE rolname='"+role+"' AND rolcanlogin); SHOW server_version;"
+    admin=subprocess.run(['runuser','-u','postgres','--','psql','-X','-At','-d','postgres','-c',query],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+    print('Local PostgreSQL metadata query status: '+str(admin.returncode))
+    if admin.returncode==0:print(admin.stdout.strip())
 domain=sys.argv[2]
 nginx=subprocess.run(['nginx','-T'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
 print('Host Nginx configuration status: '+str(nginx.returncode))
