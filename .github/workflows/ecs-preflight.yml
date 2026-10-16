@@ -21,4 +21,6 @@ jobs:
           ECS_KNOWN_HOSTS: ${{ secrets.ECS_KNOWN_HOSTS }}
           ECS_PORT: ${{ vars.ECS_PORT || '22' }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/pcba-erp' }}
+          ERP_DOMAIN: ${{ vars.ERP_DOMAIN || 'erp.thinkfiter.com' }}
+          ERP_ENV: ${{ secrets.ERP_ENV }}
         run: bash scripts/ecs_ssh.sh inspect

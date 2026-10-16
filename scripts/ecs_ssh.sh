@@ -29,14 +29,19 @@ cleanup() {
   rm -f "$key_dir/key" "$key_dir/known_hosts"
 }
 trap cleanup EXIT
+auth_dir="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-auth.XXXXXXXX')"
+[[ "$auth_dir" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+$ ]] || exit 2
+if [[ -n "${ERP_ENV:-}" ]]; then
+  printf '%s\n' "$ERP_ENV" | ssh "${ssh_args[@]}" "$target" "umask 077; cat > $auth_dir/runtime.env"
+fi
 if [[ "$operation" == inspect ]]; then
-  ssh "${ssh_args[@]}" "$target" "bash -s -- $DEPLOY_PATH" < scripts/ecs_preflight.sh
+  ERP_DOMAIN="${ERP_DOMAIN:-erp.thinkfiter.com}"
+  [[ "$ERP_DOMAIN" =~ ^[a-zA-Z0-9.-]+$ ]] || exit 2
+  ssh "${ssh_args[@]}" "$target" "bash -s -- $DEPLOY_PATH $auth_dir/runtime.env $ERP_DOMAIN" < scripts/ecs_preflight.sh
 else
   for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
     [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || exit 2
   done
-  auth_dir="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-auth.XXXXXXXX')"
-  [[ "$auth_dir" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+$ ]] || exit 2
   printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_args[@]}" "$target" \
     "docker --config $auth_dir login ghcr.io -u $GITHUB_ACTOR --password-stdin"
   ssh "${ssh_args[@]}" "$target" \
