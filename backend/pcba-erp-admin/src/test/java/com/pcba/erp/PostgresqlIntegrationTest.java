@@ -68,6 +68,61 @@ class PostgresqlIntegrationTest {
     }
 
     @Test
+    @org.springframework.transaction.annotation.Transactional
+    void partnerTextMigrationRepairsMasterAndHistoricalNamesWithoutChangingMoneyOrLinks() throws Exception {
+        String brokenSupplier = new String(java.util.HexFormat.of().parseHex(
+                "c3a6c2b5e280b9c3a8c2afe280a2c3a4c2bee280bac3a5c2bae2809dc3a5e280a2e280a0"), java.nio.charset.StandardCharsets.UTF_8);
+        String brokenHistory = new String(java.util.HexFormat.of().parseHex(
+                "c3a5c5bde280a0c3a5c28fc2b2c3a5c2aec2a2c3a6cb86c2b7"), java.nio.charset.StandardCharsets.UTF_8);
+        String code = "ENC" + System.nanoTime();
+        Long supplierId = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code, supplier_name, contact, address, payee_name, payee_account, credit_limit) "
+                + "VALUES (?, ?, '正常联系人', NULL, ?, '0012300456', 12345.67) RETURNING supplier_id", Long.class, code, brokenSupplier, brokenSupplier);
+        Long customerId = jdbc.queryForObject("INSERT INTO scm_customer(customer_code, customer_name, short_name) "
+                + "VALUES (?, '正常客户é😀', '损坏�名称') RETURNING customer_id", Long.class, code);
+        Long orderId = jdbc.queryForObject("INSERT INTO scm_purchase_order(po_no, supplier_id, supplier_name, po_date, total_amount) "
+                + "VALUES (?, ?, ?, CURRENT_DATE, 7890.12) RETURNING po_id", Long.class, code, supplierId, brokenHistory);
+        runMigration("V5__repair_partner_text_encoding.sql");
+        runMigration("V5__repair_partner_text_encoding.sql");
+        assertEquals("测试供应商", jdbc.queryForObject("SELECT supplier_name FROM scm_supplier WHERE supplier_id=?", String.class, supplierId));
+        assertEquals("测试供应商", jdbc.queryForObject("SELECT payee_name FROM scm_supplier WHERE supplier_id=?", String.class, supplierId));
+        assertEquals("正常联系人", jdbc.queryForObject("SELECT contact FROM scm_supplier WHERE supplier_id=?", String.class, supplierId));
+        assertNull(jdbc.queryForObject("SELECT address FROM scm_supplier WHERE supplier_id=?", String.class, supplierId));
+        assertEquals("0012300456", jdbc.queryForObject("SELECT payee_account FROM scm_supplier WHERE supplier_id=?", String.class, supplierId));
+        assertEquals(0, new BigDecimal("12345.67").compareTo(jdbc.queryForObject("SELECT credit_limit FROM scm_supplier WHERE supplier_id=?", BigDecimal.class, supplierId)));
+        assertEquals("正常客户é😀", jdbc.queryForObject("SELECT customer_name FROM scm_customer WHERE customer_id=?", String.class, customerId));
+        assertEquals("损坏�名称", jdbc.queryForObject("SELECT short_name FROM scm_customer WHERE customer_id=?", String.class, customerId));
+        assertEquals("历史客户", jdbc.queryForObject("SELECT supplier_name FROM scm_purchase_order WHERE po_id=?", String.class, orderId));
+        assertEquals(supplierId, jdbc.queryForObject("SELECT supplier_id FROM scm_purchase_order WHERE po_id=?", Long.class, orderId));
+        assertEquals(0, new BigDecimal("7890.12").compareTo(jdbc.queryForObject("SELECT total_amount FROM scm_purchase_order WHERE po_id=?", BigDecimal.class, orderId)));
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void partnerMenuMigrationKeepsRoutesAndExistingRoleBoundaries() throws Exception {
+        jdbc.execute("CREATE TEMP TABLE sys_menu (LIKE public.sys_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_role_menu (LIKE public.sys_role_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.update("INSERT INTO sys_menu(menu_id, menu_name, parent_id, path, menu_type, visible, status, perms) VALUES "
+                + "(306, '供应商管理', 300, '/scm/supplier', 'C', 0, 0, 'scm:supplier:list'), "
+                + "(501, '客户管理', 500, '/sal/customer', 'C', 0, 0, 'sal:customer:list')");
+        jdbc.update("INSERT INTO sys_role_menu(role_id, menu_id) VALUES (1001, 306), (1002, 501), (1003, 999)");
+        runMigration("V6__add_partner_master_data_menu.sql");
+        runMigration("V6__add_partner_master_data_menu.sql");
+        Long root = jdbc.queryForObject("SELECT menu_id FROM sys_menu WHERE path='base-data'", Long.class);
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM sys_menu WHERE parent_id=?", Integer.class, root));
+        assertEquals(List.of("/scm/supplier", "/sal/customer"), jdbc.queryForList("SELECT path FROM sys_menu WHERE parent_id=? ORDER BY order_num", String.class, root));
+        assertEquals(List.of(1001L, 1002L), jdbc.queryForList("SELECT role_id FROM sys_role_menu WHERE menu_id=? ORDER BY role_id", Long.class, root));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM sys_role_menu WHERE (role_id=1001 AND menu_id=501) OR (role_id=1002 AND menu_id=306)", Integer.class));
+        assertEquals("scm:supplier:list", jdbc.queryForObject("SELECT perms FROM sys_menu WHERE menu_id=306", String.class));
+    }
+
+    private void runMigration(String file) throws Exception {
+        var resource = new org.springframework.core.io.ClassPathResource("db/migration/" + file);
+        try (var input = resource.getInputStream()) {
+            jdbc.execute(new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
     void handwrittenMapperSelectsCompileOnPostgresql() throws Exception {
         List<String> failures = new ArrayList<>();
         int checked = 0;
