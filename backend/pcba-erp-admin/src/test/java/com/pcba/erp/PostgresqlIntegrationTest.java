@@ -44,6 +44,30 @@ class PostgresqlIntegrationTest {
     @Autowired SqlSessionFactory sessions;
 
     @Test
+    @org.springframework.transaction.annotation.Transactional
+    void salesMenuMigrationRepairsLegacyEncodingAndPreservesCustomLabels() {
+        jdbc.execute("CREATE TEMP TABLE sys_menu (menu_id BIGINT PRIMARY KEY, menu_name TEXT, path TEXT, perms TEXT) ON COMMIT DROP");
+        jdbc.update("INSERT INTO sys_menu VALUES (500, ?, 'sal', NULL), (501, ?, '/sal/customer', 'sal:customer:list'), "
+                + "(502, '自定义销售订单', '/sal/order', 'sal:order:list'), (450, '财务应付', 'ap-fin', NULL)",
+                "\u00e9\u201d\u20ac\u00e5\u201d\u00ae\u00e7\u00ae\u00a1\u00e7\u0090\u2020",
+                "\u00e5\u00ae\u00a2\u00e6\u02c6\u00b7\u00e7\u00ae\u00a1\u00e7\u0090\u2020");
+        var migration = new org.springframework.core.io.ClassPathResource("db/migration/V4__repair_sales_menu_labels.sql");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) connection -> {
+                org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(connection,
+                        new org.springframework.core.io.support.EncodedResource(migration, java.nio.charset.StandardCharsets.UTF_8));
+                return null;
+            });
+        }
+        assertEquals("销售管理", jdbc.queryForObject("SELECT menu_name FROM sys_menu WHERE menu_id=500", String.class));
+        assertEquals("客户管理", jdbc.queryForObject("SELECT menu_name FROM sys_menu WHERE menu_id=501", String.class));
+        assertEquals("自定义销售订单", jdbc.queryForObject("SELECT menu_name FROM sys_menu WHERE menu_id=502", String.class));
+        assertEquals("财务应付", jdbc.queryForObject("SELECT menu_name FROM sys_menu WHERE menu_id=450", String.class));
+        assertEquals("sal:customer:list", jdbc.queryForObject("SELECT perms FROM sys_menu WHERE menu_id=501", String.class));
+        assertEquals("/sal/customer", jdbc.queryForObject("SELECT path FROM sys_menu WHERE menu_id=501", String.class));
+    }
+
+    @Test
     void handwrittenMapperSelectsCompileOnPostgresql() throws Exception {
         List<String> failures = new ArrayList<>();
         int checked = 0;
