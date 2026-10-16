@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.pcba.erp</groupId>
+        <artifactId>pcba-erp-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pcba-erp-pdm</artifactId>
+    <name>PCBA-ERP :: PDM</name>
+    <description>产品数据管理 - 物料/BOM/工艺/替代料</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-common</artifactId>
+        </dependency>
+        <!-- EasyExcel 导入导出 -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>easyexcel</artifactId>
+        </dependency>
+    </dependencies>
+</project>

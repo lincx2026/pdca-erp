@@ -1,0 +1,116 @@
+name: pcba-erp
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pcba_erp}
+      POSTGRES_USER: ${POSTGRES_USER:-pcba}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/init-env.py first}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [pcba-net]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: &logging
+      driver: json-file
+      options: {max-size: 20m, max-file: "5"}
+
+  redis:
+    image: redis:7.2.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/init-env.py first}
+    command: [/bin/sh, -ec, 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$${REDIS_PASSWORD}"']
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./redis/data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks: [pcba-net]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+  backend:
+    image: ${BACKEND_IMAGE:-pcba-erp/backend:local}
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      TZ: Asia/Shanghai
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-pcba_erp}
+      POSTGRES_USER: ${POSTGRES_USER:-pcba}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Missing REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Missing JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-720}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Missing BOOTSTRAP_ADMIN_PASSWORD}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
+      OSS_SECURITY_TOKEN: ${OSS_SECURITY_TOKEN:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://erp.thinkfit.cn}
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+      JAVA_OPTS: ${JAVA_OPTS:--Xms512m -Xmx2g -XX:+UseG1GC}
+    ports: ["127.0.0.1:8080:8080"]
+    networks: [pcba-net]
+    healthcheck:
+      test: [CMD-SHELL, 'curl --noproxy "*" -fsS http://127.0.0.1:8080/actuator/health/readiness >/dev/null']
+      interval: 5s
+      timeout: 5s
+      start_period: 90s
+      retries: 24
+    stop_grace_period: 40s
+    logging: *logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-pcba-erp/frontend:local}
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend: {condition: service_healthy}
+    environment:
+      ERP_DOMAIN: ${ERP_DOMAIN:-erp.thinkfit.cn}
+      NGINX_ENVSUBST_FILTER: ^ERP_DOMAIN$
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+    networks: [pcba-net]
+    healthcheck:
+      test: [CMD-SHELL, 'wget -Y off -qO- http://127.0.0.1/healthz >/dev/null']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging: *logging
+
+networks:
+  pcba-net:
+    name: pcba-net
+    driver: bridge
+
+volumes:
+  postgres-data:
+    name: ${POSTGRES_VOLUME_NAME:-pcba-erp-postgres-data}

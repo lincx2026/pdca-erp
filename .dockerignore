@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+.migration-work
+.deploy-backups
+docker/**/data
+docker/nginx/ssl
+**/node_modules
+**/target/*
+!backend/pcba-erp-admin/target/pcba-erp.jar
+**/*.log
+_*
+tmp*
+db
+backup

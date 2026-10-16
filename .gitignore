@@ -1,0 +1,170 @@
+# ============================================================
+#  PCBA-ERP  .gitignore   (source-only clean / 安全加固)
+# ============================================================
+
+# ===== Java / Maven build artifacts =====
+**/target/
+*.class
+*.jar
+*.war
+*.nar
+*.zip
+*.tar.gz
+*.tar
+*.rar
+hs_err_pid*
+replay_pid*
+.mvn/wrapper/maven-wrapper.jar
+
+# ===== Copied deployment jars in backend root =====
+backend/pcba-erp.jar
+
+# ===== Node / Frontend =====
+**/node_modules/
+**/dist/
+**/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.cache/
+.parcel-cache/
+frontend/dist_deploy*
+
+# ===== Python cache / local environments =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ===== IDE / Editor =====
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.factorypath
+*.swp
+*.swo
+
+# ===== OS junk =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ===== Temporary / deploy working dirs =====
+.deploy-tmp/
+deploy-v*.tar.gz
+deploy-v*.ps1
+deploy-v*.sh
+_tmp_*
+*.log
+
+# ===== Docker data volumes (never commit actual DB data) =====
+docker/**/data/
+docker/mysql/**/*.sock
+docker/mysql/**/*.pid
+
+# ===== Docker build staging =====
+docker/backend/
+docker/frontend/dist/
+docker/frontend/**/dist*/
+
+# ===== Sensitive: secrets / credentials / SSL private keys =====
+.env
+.env.*
+!.env.example
+.migration-work/
+.deploy-backups/
+_patch_secrets.*
+**/secrets/**
+**/credentials.*
+**/*.env
+**/*.env.*
+!**/.env.example
+# SSL / certs: block ALL private keys
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.crt.bak
+
+# ===== Legacy MySQL scripts / DB binaries =====
+# PostgreSQL migrations below are the published schema; keep legacy demo credentials local.
+db/init/
+db/patch/
+db/*.ibd
+db/*.frm
+db/*.MYD
+db/*.MYI
+db/**/*.zip
+db/**/*.gz
+
+# ===== Backups / dumps =====
+backup/
+*.sql
+!docs/sql/*.sql
+!backend/**/src/main/resources/db/migration/*.sql
+!backend/**/src/test/resources/*.sql
+!db/postgresql/**/*.sql
+pcba_erp*.sql*
+pcba_erp_*.gz
+
+# ===== Go-live scripts (contain passwords, don't commit) =====
+mysql_backup.sh
+go_live_cleanup.sql
+nginx_prod.conf
+deploy-*.tar.gz
+pcba-erp-src.tar.gz
+*.ps1
+*.bat
+
+# ===== Local-only working scripts, probes, test data (never push to Gitee) =====
+# Root-level
+run_*.*
+tmp-*.*
+tmp_*.*
+refresh_caches.*
+deploy.*
+deploy-*.*
+deploy_frontend_planC.*
+fix404-deploy-all.*
+deploy-seed-test.*
+deploy-v*.*
+*_plan*.*
+_smoke_*.*
+_seed_sql.*
+deploy-env*
+部署笔记*.md
+*对账单*.xlsx
+*_recon_statement*.xlsx
+# Any subfolder (including backend/) also forbidden for same patterns
+**/tmp-*.*
+**/tmp_*.*
+**/run-*.*
+**/run_*.*
+**/_smoke_*.*
+**/_dbg_*.*
+**/_seed_sql.*
+**/deploy-*.*
+**/deploy.*
+**/*deploy*.*
+**/build-deploy-*.*
+**/deploy-seed-*.*
+**/refresh_caches.*
+**/*_plan*.*
+**/gen-*.*
+**/*seed*.*
+
+# Version deployment code; credentials belong only in .env.
+!deploy.sh
+!docker/backend/
+!docker/backend/Dockerfile
+!scripts/test_deployment.py

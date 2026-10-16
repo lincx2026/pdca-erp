@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.pcba.erp</groupId>
+        <artifactId>pcba-erp-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pcba-erp-scm</artifactId>
+    <name>PCBA-ERP :: SCM</name>
+    <description>供应链/采购管理 - 采购申请/采购订单/到货/退货 + 供应商价格 + 供应商管理 + 采购看板</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-pdm</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-wms</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-pmm</artifactId>
+        </dependency>
+    </dependencies>
+</project>

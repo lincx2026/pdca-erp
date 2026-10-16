@@ -1,0 +1,44 @@
+{
+  "name": "pcba-erp-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:strict": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.7.2",
+    "dayjs": "^1.11.11",
+    "echarts": "^5.5.0",
+    "element-plus": "^2.7.6",
+    "nprogress": "^0.2.0",
+    "pinia": "^2.1.7",
+    "pinia-plugin-persistedstate": "^3.2.1",
+    "vue": "^3.4.27",
+    "vue-router": "^4.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/nprogress": "^0.2.3",
+    "@vitejs/plugin-vue": "^5.0.5",
+    "fast-glob": "^3.3.2",
+    "sass": "^1.77.2",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11",
+    "vite-plugin-svg-icons": "^2.0.1",
+    "vue-tsc": "^2.0.19"
+  },
+  "allowScripts": {
+    "vue-demi@0.14.10": true,
+    "esbuild@0.21.5": true,
+    "@parcel/watcher@2.6.0": true
+  }
+}

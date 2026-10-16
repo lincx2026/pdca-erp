@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.pcba.erp</groupId>
+        <artifactId>pcba-erp-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pcba-erp-wms</artifactId>
+    <name>PCBA-ERP :: WMS</name>
+    <description>仓储管理 - 仓库/库存/入出库</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pcba.erp</groupId>
+            <artifactId>pcba-erp-pdm</artifactId>
+        </dependency>
+    </dependencies>
+</project>
