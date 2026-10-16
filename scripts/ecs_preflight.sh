@@ -28,13 +28,13 @@ environment={**os.environ,'PGHOST':settings.get('DB_HOST','127.0.0.1'),'PGPORT':
     'PGDATABASE':settings.get('POSTGRES_DB','pcba_erp'),'PGUSER':settings.get('POSTGRES_USER','pcba'),
     'PGPASSWORD':settings.get('POSTGRES_PASSWORD',''),'PGSSLMODE':settings.get('DB_SSLMODE','disable'),'PGCONNECT_TIMEOUT':'10'}
 query="BEGIN READ ONLY; SELECT current_database(), (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'),to_regclass('public.flyway_schema_history') IS NOT NULL,to_regclass('public.sys_user') IS NOT NULL; ROLLBACK;"
-result=subprocess.run(['psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-c',query],env=environment,capture_output=True,text=True)
+result=subprocess.run(['psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-c',query],env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
 print('Configured PostgreSQL authentication: '+('PASS' if result.returncode==0 else 'FAIL'))
 if result.returncode==0:
     for line in result.stdout.splitlines():
         if '|' in line:print('ERP database metadata (name|tables|Flyway|sys_user): '+line)
 domain=sys.argv[2]
-nginx=subprocess.run(['nginx','-T'],capture_output=True,text=True)
+nginx=subprocess.run(['nginx','-T'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
 configuration=nginx.stdout+nginx.stderr
 names=re.findall(r'(?m)^\s*server_name\s+([^;]+);',configuration)
 print('Existing exact ERP virtual host: '+str(any(domain in line.split() for line in names)))
@@ -43,8 +43,8 @@ for match in re.finditer(r'(?m)^\s*ssl_certificate\s+([^;]+);',configuration):
     try:certificate=shlex.split(match.group(1))[0]
     except (IndexError,ValueError):continue
     if not Path(certificate).is_file():continue
-    valid=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkhost',domain],capture_output=True)
-    expires=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkend','0'],capture_output=True)
+    valid=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkhost',domain],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    expires=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkend','0'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if valid.returncode or expires.returncode:continue
     key=re.search(r'(?m)^\s*ssl_certificate_key\s+([^;]+);',configuration[match.end():match.end()+2048])
     if not key:continue
