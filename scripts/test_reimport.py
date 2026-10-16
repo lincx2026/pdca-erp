@@ -30,6 +30,13 @@ class ReplacementTests(unittest.TestCase):
             with self.assertRaises(ValueError):migration.Replacement(self.root)
             (self.root/'.env').write_text(text)
 
+    def test_create_database_is_not_wrapped_in_an_implicit_transaction(self):
+        query='CREATE DATABASE "pcba_protocol_test" OWNER "pcba"'
+        with patch.object(migration,'run',return_value='') as execute:
+            self.operation.admin(query)
+        self.assertEqual(query,execute.call_args.args[0][-1])
+        self.assertEqual('-c timezone=Asia/Shanghai',execute.call_args.kwargs['env']['PGOPTIONS'])
+
     def test_identifiers_and_incomplete_verification_are_refused(self):
         for value in ('postgres; DROP DATABASE other','Other','../pcba'):
             with self.assertRaises(ValueError):migration.identifier(value)

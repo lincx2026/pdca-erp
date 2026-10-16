@@ -47,7 +47,7 @@ class Replacement:
         identifier(database)
         return run(['runuser','-u','postgres','--','psql','-X','-w','-At',
                     '-v','ON_ERROR_STOP=1','-p',self.port,'-d',database,
-                    '-c',"SET TIME ZONE 'Asia/Shanghai'; "+query])
+                    '-c',query],env=dict(os.environ,PGOPTIONS='-c timezone=Asia/Shanghai'))
 
     def exists(self,database):
         identifier(database)
