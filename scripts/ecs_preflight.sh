@@ -39,7 +39,7 @@ if nginx.returncode:
     for line in nginx.stderr.splitlines():
         if '[emerg]' in line or '[error]' in line:print('Nginx diagnostic: '+line[:400])
 configuration=nginx.stdout+nginx.stderr
-names=re.findall(r'(?m)^\s*server_name\s+([^;]+);',configuration)
+names=re.findall(r'\bserver_name\s+([^;]+);',configuration)
 print('Existing exact ERP virtual host: '+str(any(domain in line.split() for line in names)))
 found=False
 for match in re.finditer(r'(?m)^\s*ssl_certificate\s+([^;]+);',configuration):
@@ -87,3 +87,9 @@ done
 for name in .env docker/nginx/ssl/fullchain.pem docker/nginx/ssl/private.key; do
   if [[ -s "$ROOT/$name" ]]; then echo "ERP prerequisite present: $name"; else echo "ERP prerequisite missing: $name"; fi
 done
+docker ps -a --filter label=com.docker.compose.project=pcba-erp --format 'ERP service: {{.Label "com.docker.compose.service"}} {{.Status}}'
+docker image ls --format '{{.Repository}} {{.Size}}' | while IFS= read -r image; do
+  case "$image" in ghcr.io/lincx2026/pdca-erp-*) echo "ERP image available: $image" ;; esac
+done
+if pgrep -f '^docker pull ghcr.io/lincx2026/pdca-erp-' >/dev/null; then echo 'ERP registry image download is active.'; fi
+if [[ -s "$ROOT/.deploy-backups/initial-data-import.sha256" ]]; then echo 'Historical data verification marker present.'; fi

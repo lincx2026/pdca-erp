@@ -67,7 +67,9 @@ class EcsTests(unittest.TestCase):
             def run(arguments,**kwargs):
                 calls.append(arguments)
                 if arguments[0]=='psql':return self.result('0' if 'information_schema' in arguments[-1] else '1')
-                if arguments[0]=='openssl':Path(arguments[-1]).write_bytes(b'verified dump')
+                if arguments[0]=='openssl':
+                    if '-help' in arguments:return self.result(b'',error=b'')
+                    Path(arguments[-1]).write_bytes(b'verified dump')
                 return self.result()
             manifest=self.import_manifest(None if valid else 'b'*64)
             marker=self.root/'.deploy-backups/initial-data-import.sha256'
@@ -113,6 +115,16 @@ class EcsTests(unittest.TestCase):
         with patch.object(ecs_site,'command',side_effect=self.nginx_command):
             with self.assertRaisesRegex(ValueError,'unmanaged'):ecs_site.apply(self.env,target)
         self.assertEqual(b'existing unrelated config',target.read_bytes())
+
+    @unittest.skipIf(os.name=='nt','Production certificate paths target Linux')
+    def test_inline_existing_virtual_host_is_never_replaced(self):
+        target=self.root/'nginx.conf'
+        def command(arguments):
+            if arguments==['nginx','-T']:return self.result('server { listen 80; server_name erp.example.com; }')
+            return self.nginx_command(arguments)
+        with patch.object(ecs_site,'command',side_effect=command):
+            with self.assertRaisesRegex(ValueError,'already belongs'):ecs_site.apply(self.env,target)
+        self.assertFalse(target.exists())
 
     @unittest.skipIf(__import__('os').name=='nt','Production certificate paths target Linux')
     def test_readiness_failure_restores_previous_virtual_host(self):

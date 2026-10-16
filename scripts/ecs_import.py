@@ -37,7 +37,9 @@ def restore(environment_path,manifest_path):
                 if total>128*1024*1024:raise ValueError('Initial import exceeds 128 MiB limit')
                 output.write(block)
         decrypt_environment=dict(os.environ,PCBA_IMPORT_PASSWORD=manifest['key'])
-        decrypted=subprocess.run(['openssl','enc','-d','-aes-256-cbc','-pbkdf2','-iter','200000',
+        help_result=subprocess.run(['openssl','enc','-help'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        salt_arguments=['-saltlen','8'] if b'-saltlen' in help_result.stdout+help_result.stderr else []
+        decrypted=subprocess.run(['openssl','enc','-d','-aes-256-cbc','-pbkdf2','-iter','200000']+salt_arguments+[
             '-pass','env:PCBA_IMPORT_PASSWORD','-in',str(encrypted),'-out',str(dump)],env=decrypt_environment,
             stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         if decrypted.returncode or hashlib.sha256(dump.read_bytes()).hexdigest()!=expected:

@@ -34,13 +34,15 @@ def main():
     key=secrets.token_hex(32)
     with tempfile.TemporaryDirectory(prefix='pcba-encrypted-transfer-') as temporary:
         encrypted=Path(temporary)/'backup.enc'
-        subprocess.run([args.openssl,'enc','-aes-256-cbc','-pbkdf2','-iter','200000','-salt',
+        help_result=subprocess.run([args.openssl,'enc','-help'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        salt_arguments=['-saltlen','8'] if b'-saltlen' in help_result.stdout+help_result.stderr else []
+        subprocess.run([args.openssl,'enc','-aes-256-cbc','-pbkdf2','-iter','200000','-salt']+salt_arguments+[
             '-pass','env:PCBA_IMPORT_PASSWORD','-in',str(Path(args.dump).resolve()),'-out',str(encrypted)],
             env=dict(os.environ,PCBA_IMPORT_PASSWORD=key),check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         object_key='_deployment-transfer/'+uuid.uuid4().hex+'.pg.enc'
         bucket.put_object(object_key,encrypted.read_bytes(),headers={'x-oss-object-acl':'private','Content-Type':'application/octet-stream'})
     Path(args.state).write_text(json.dumps({'object':object_key,'sha256':checksum}),encoding='utf-8')
-    manifest={'url':bucket.sign_url('GET',object_key,4*3600),'key':key,'sha256':checksum,
+    manifest={'url':bucket.sign_url('GET',object_key,4*3600),'key':key,'sha256':checksum,'salt_length':8,
         'counts':{table:value['rows'] for table,value in verified.items()}}
     subprocess.run(['gh','secret','set','ERP_DATA_IMPORT','--repo','lincx2026/pdca-erp','--env','production'],
         input=json.dumps(manifest),universal_newlines=True,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)

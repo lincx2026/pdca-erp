@@ -26,7 +26,7 @@ def prepare_certificate(path,target=Path('/etc/nginx/conf.d/pcba-erp.conf')):
     if previous is None:
         dump=command(['nginx','-T'])
         if dump.returncode:raise RuntimeError('Existing Nginx configuration is invalid')
-        for names in re.findall(r'(?m)^\s*server_name\s+([^;]+);',dump.stdout+dump.stderr):
+        for names in re.findall(r'\bserver_name\s+([^;]+);',dump.stdout+dump.stderr):
             if domain in names.split():raise ValueError('Domain already belongs to an existing virtual host')
     webroot=str(Path(path).resolve().parent/'.acme')
     if not re.fullmatch(r'/[a-zA-Z0-9_./-]+',webroot):raise ValueError('Unsafe ACME directory')
@@ -94,7 +94,7 @@ server {
     for name,value in [('DOMAIN',domain),('CERTIFICATE',certificate),('KEY',key),('PORT',port),('WEBROOT',webroot)]:content=content.replace(name,value)
     if previous is None:
         dump=command(['nginx','-T'])
-        for names in re.findall(r'(?m)^\s*server_name\s+([^;]+);',dump.stdout+dump.stderr):
+        for names in re.findall(r'\bserver_name\s+([^;]+);',dump.stdout+dump.stderr):
             if domain in names.split():raise ValueError('Domain already belongs to an existing virtual host')
     temporary=target.with_suffix('.conf.tmp');temporary.write_text(content,encoding='utf-8');os.chmod(str(temporary),0o644)
     os.replace(str(temporary),str(target))
