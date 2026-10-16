@@ -23,7 +23,7 @@ services:
       options: {max-size: 20m, max-file: "5"}
 
   redis:
-    image: redis:7.2.4-alpine
+    image: ${ERP_REDIS_IMAGE:-redis:7.2.4-alpine}
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/init-env.py first}

@@ -70,6 +70,8 @@ else
   ssh "${ssh_args[@]}" "$target" "pkill -TERM -f '^docker pull ghcr.io/lincx2026/pdca-erp-(backend|frontend)@sha256:[a-f0-9]{64}$' || true"
   docker save "$loaded_backend" "$loaded_frontend" "$loaded_redis" | gzip -1 | \
     ssh "${ssh_args[@]}" "$target" "bash -o pipefail -c 'gzip -d | docker load'"
+  latest="$(GH_TOKEN="$REGISTRY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+  [[ "$latest" == "$GITHUB_SHA" ]] || { echo 'main advanced during image transfer; no services changed.'; exit 2; }
   ssh "${ssh_args[@]}" "$target" \
     "PCBA_PRELOADED=1 BACKEND_IMAGE_ID=$backend_id FRONTEND_IMAGE_ID=$frontend_id ERP_REDIS_IMAGE=$loaded_redis ERP_REDIS_IMAGE_ID=$redis_id bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $loaded_backend $loaded_frontend $auth_dir/runtime.env $auth_dir/source.bundle" \
     < scripts/ecs_release.sh
