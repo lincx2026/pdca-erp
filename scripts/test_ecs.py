@@ -19,6 +19,7 @@ class EcsTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
+        sleep=patch.object(ecs_site.time,'sleep');sleep.start();self.addCleanup(sleep.stop)
         self.env=self.root/'runtime.env'
         self.env.write_text('ERP_DOMAIN=erp.example.com\nPOSTGRES_PASSWORD=test-private\n'
             'ERP_TLS_CERT='+str(self.root/'cert')+'\nERP_TLS_KEY='+str(self.root/'key')+'\n')
@@ -142,6 +143,18 @@ class EcsTests(unittest.TestCase):
         with patch.object(ecs_site,'command',side_effect=self.nginx_command):ecs_site.apply(self.env,target)
         self.assertIn('proxy_pass http://127.0.0.1:18080',target.read_text())
         self.assertEqual('test-only',(self.root/'key').read_text())
+
+    @unittest.skipIf(os.name=='nt','Production certificate paths target Linux')
+    def test_reload_waits_for_new_workers_before_testing_certificate(self):
+        target=self.root/'nginx.conf';attempts=[]
+        def command(arguments):
+            if arguments[0]=='curl':
+                attempts.append(1)
+                if len(attempts)==1:return self.result(code=60,error='old default certificate')
+            return self.nginx_command(arguments)
+        with patch.object(ecs_site,'command',side_effect=command):ecs_site.apply(self.env,target)
+        self.assertEqual(2,len(attempts))
+        self.assertTrue(target.exists())
 
     @unittest.skipIf(os.name=='nt','Automatic TLS targets Linux')
     def test_certificate_failure_restores_previous_erp_virtual_host(self):

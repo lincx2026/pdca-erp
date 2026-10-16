@@ -1,6 +1,6 @@
 """Install only the ERP host-Nginx virtual host, preserving other applications."""
 from pathlib import Path
-import os,re,subprocess,sys
+import os,re,subprocess,sys,time,json
 from ecs_db import settings
 
 MARKER='# Managed by PCBA ERP\n'
@@ -102,11 +102,17 @@ server {
         if command(['nginx','-t']).returncode or command(['nginx','-s','reload']).returncode:
             raise RuntimeError('Nginx configuration validation or reload failed')
         url='https://'+domain+'/api/actuator/health/readiness'
-        probe=command(['curl','--noproxy','*','--fail','--silent','--show-error','--max-time','30',
-            '--resolve',domain+':443:127.0.0.1',url])
-        import json
-        if probe.returncode or json.loads(probe.stdout).get('status')!='UP':
-            raise RuntimeError('ERP HTTPS readiness check failed')
+        # reload is asynchronous: existing workers can briefly serve the old certificate.
+        for attempt in range(15):
+            probe=command(['curl','--noproxy','*','--fail','--silent','--show-error','--max-time','10',
+                '--resolve',domain+':443:127.0.0.1',url])
+            if probe.returncode==0:
+                try:
+                    if json.loads(probe.stdout).get('status')=='UP':break
+                except ValueError:pass
+            if attempt<14:time.sleep(2)
+        else:
+            raise RuntimeError('ERP HTTPS readiness check failed (curl '+str(probe.returncode)+'): '+probe.stderr[:240].strip())
     except Exception:
         if previous is None:target.unlink()
         else:target.write_bytes(previous)
