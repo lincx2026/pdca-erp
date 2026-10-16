@@ -115,6 +115,36 @@ class PostgresqlIntegrationTest {
         assertEquals("scm:supplier:list", jdbc.queryForObject("SELECT perms FROM sys_menu WHERE menu_id=306", String.class));
     }
 
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void roleMenuMigrationRestoresPageAndPreservesPermissionsAndSeededDepartment() throws Exception {
+        jdbc.execute("CREATE TEMP TABLE sys_menu (LIKE public.sys_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_role_menu (LIKE public.sys_role_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.update("INSERT INTO sys_menu(menu_id, menu_name, parent_id, path, component, menu_type, visible, status, perms) VALUES "
+                + "(3, '角色管理', 1, '/system/role', 'system/role/index', 'C', 0, 0, 'system:role:list'), "
+                + "(4, '菜单管理', 1, '/system/menu', 'system/menu/index', 'C', 0, 0, 'system:menu:list'), "
+                + "(5, 'MenuMgmt', 3, 'menu', 'system/menu/index', 'C', 0, 0, 'system:menu:list'), "
+                + "(143, '角色查询', 3, '', NULL, 'F', 0, 0, 'system:role:list'), "
+                + "(151, '部门查询', 5, '', NULL, 'F', 0, 0, 'system:dept:list')");
+        jdbc.update("INSERT INTO sys_role_menu(role_id, menu_id) VALUES (1001, 3), (1001, 143), (1002, 5)");
+        var rights = jdbc.queryForList("SELECT role_id, menu_id FROM sys_role_menu ORDER BY role_id, menu_id");
+        var pages = jdbc.queryForList("SELECT * FROM sys_menu WHERE menu_id IN (3,4,143,151) ORDER BY menu_id");
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM sys_menu WHERE parent_id=3 AND visible=0 AND status=0 AND menu_type IN ('M','C')", Integer.class));
+        runMigration("V7__repair_role_menu_child.sql");
+        runMigration("V7__repair_role_menu_child.sql");
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM sys_menu WHERE parent_id=3 AND visible=0 AND status=0 AND menu_type IN ('M','C')", Integer.class));
+        assertEquals(pages, jdbc.queryForList("SELECT * FROM sys_menu WHERE menu_id IN (3,4,143,151) ORDER BY menu_id"));
+        assertEquals(rights, jdbc.queryForList("SELECT role_id, menu_id FROM sys_role_menu ORDER BY role_id, menu_id"));
+        assertEquals("system:menu:list", jdbc.queryForObject("SELECT perms FROM sys_menu WHERE menu_id=5", String.class));
+        assertEquals(1, jdbc.queryForObject("SELECT visible FROM sys_menu WHERE menu_id=5", Integer.class));
+        // Fresh installations use ID 5 for department management; never rewrite it.
+        jdbc.update("UPDATE sys_menu SET parent_id=1, menu_name='部门管理', path='dept', component='system/dept/index', "
+                + "menu_type='C', visible=0, perms='system:dept:list' WHERE menu_id=5");
+        var department = jdbc.queryForMap("SELECT * FROM sys_menu WHERE menu_id=5");
+        runMigration("V7__repair_role_menu_child.sql");
+        assertEquals(department, jdbc.queryForMap("SELECT * FROM sys_menu WHERE menu_id=5"));
+    }
+
     private void runMigration(String file) throws Exception {
         var resource = new org.springframework.core.io.ClassPathResource("db/migration/" + file);
         try (var input = resource.getInputStream()) {
