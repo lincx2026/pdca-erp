@@ -17,7 +17,7 @@ if [[ -n "$RUNTIME_ENV" ]]; then
 fi
 if [[ ! -d "$ROOT" ]]; then
   [[ -s "$RUNTIME_ENV" ]] || { echo 'New ECS deployment requires ERP_ENV.'; exit 2; }
-  python3 "$(dirname "$RUNTIME_ENV")/ecs_db.py" "$RUNTIME_ENV"
+  python3 "$(dirname "$RUNTIME_ENV")/ecs_db.py" "$RUNTIME_ENV" --prepare-local
   git clone --branch main "https://github.com/$REPOSITORY.git" "$ROOT"
 fi
 cd "$ROOT"
@@ -42,7 +42,7 @@ PREVIOUS="$(git rev-parse HEAD)"
 if [[ "$DEPLOY_MODE" == shared ]]; then
   checker="${RUNTIME_ENV%/runtime.env}/ecs_db.py"
   [[ -f "$checker" ]] || checker=scripts/ecs_db.py
-  python3 "$checker" .env
+  python3 "$checker" .env --prepare-local
 fi
 git fetch --no-tags "https://github.com/$REPOSITORY.git" main
 git merge-base --is-ancestor "$REVISION" FETCH_HEAD || {
@@ -57,6 +57,9 @@ if [[ "$DEPLOY_MODE" == shared ]]; then
   python3 scripts/ecs_db.py .env --backup ".deploy-backups/database-before-$(date -u +%Y%m%dT%H%M%SZ)-$$.dump"
 fi
 release() {
+  if [[ "$DEPLOY_MODE" == shared ]]; then
+    python3 scripts/ecs_site.py .env --prepare-certificate || return $?
+  fi
   bash deploy.sh images || return $?
   if [[ "$DEPLOY_MODE" == shared ]]; then
     python3 scripts/ecs_site.py .env || { bash deploy.sh rollback || true; return 1; }

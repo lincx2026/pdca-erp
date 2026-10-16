@@ -3,6 +3,8 @@ from pathlib import Path
 import os
 import subprocess
 import sys
+import re
+import time
 
 def settings(path):
     result={}
@@ -52,6 +54,44 @@ def backup(path,target):
     print('ERP database backup completed.')
     return True
 
+def prepare_local(path):
+    """Replace Ident only for the configured local database/role; restore on failure."""
+    environment=connection(path)
+    probe=subprocess.run(['psql','-X','-w','-At','-c','SELECT 1'],env=environment,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+    if probe.returncode==0:return check(path)
+    if 'Ident authentication failed' not in probe.stderr or os.geteuid()!=0 or environment['PGHOST']!='127.0.0.1':
+        return check(path)
+    database=environment['PGDATABASE'];role=environment['PGUSER']
+    if not all(re.fullmatch(r'[a-zA-Z0-9_]+',value) for value in (database,role)):
+        print('Local authentication setup requires simple database and role names.');return False
+    def admin(query):
+        result=subprocess.run(['runuser','-u','postgres','--','psql','-X','-At','-v','ON_ERROR_STOP=1',
+            '-d','postgres','-c',query],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+        if result.returncode:raise RuntimeError('Local PostgreSQL administration failed')
+        return result.stdout.strip()
+    method=admin("SELECT CASE WHEN rolpassword LIKE 'SCRAM-SHA-256$%' THEN 'scram-sha-256' WHEN rolpassword LIKE 'md5%' THEN 'md5' ELSE '' END FROM pg_authid WHERE rolname='"+role+"' AND rolcanlogin AND EXISTS(SELECT FROM pg_database WHERE datname='"+database+"')")
+    if method not in ('scram-sha-256','md5'):
+        print('Target database or password-enabled role is missing.');return False
+    target=Path(admin('SHOW hba_file'))
+    previous=target.read_bytes()
+    prefix=('# PCBA ERP local authentication\nhost "'+database+'" "'+role+'" 127.0.0.1/32 '+method+'\n').encode()
+    saved=target.with_name(target.name+'.pcba-erp-before-'+str(time.time_ns() if hasattr(time,'time_ns') else int(time.time()*1000000)))
+    descriptor=os.open(str(saved),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(descriptor,'wb') as output:output.write(previous)
+    try:
+        if target.read_bytes()!=previous:raise RuntimeError('Authentication configuration changed concurrently')
+        target.write_bytes(prefix+previous)
+        admin('SELECT pg_reload_conf()');time.sleep(1)
+        if not check(path):raise RuntimeError('ERP connection validation failed after scoped authentication setup')
+    except Exception:
+        if target.read_bytes()==prefix+previous:
+            target.write_bytes(previous);admin('SELECT pg_reload_conf()')
+        print('ERP authentication setup failed; original configuration restored.');return False
+    print('ERP-specific local authentication configured; existing passwords unchanged.')
+    return True
+
 if __name__=='__main__':
+    if '--prepare-local' in sys.argv[2:]:sys.exit(0 if prepare_local(sys.argv[1]) else 2)
     if len(sys.argv)>3 and sys.argv[2]=='--backup':sys.exit(0 if backup(sys.argv[1],sys.argv[3]) else 2)
     sys.exit(0 if check(sys.argv[1],'--inspect' in sys.argv[2:]) else 2)

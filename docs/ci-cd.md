@@ -46,6 +46,10 @@ ERP_TLS_KEY=/etc/letsencrypt/live/your-domain/privkey.pem
 
 证书路径指向服务器上覆盖正式域名的有效证书。共享模式要求 Linux、Compose >= 2.24.4、Python >= 3.6、psql、pg_dump、Nginx、OpenSSL、curl。后端和前端使用主机网络并仅监听回环地址，Redis 仅发布回环 16379；不启动 Compose PostgreSQL、不占用已有 Redis 6379。选定端口须未被占用。
 
+若没有匹配的证书，可显式设置 `ERP_TLS_AUTO=true`，并将两个证书路径设为 `/etc/letsencrypt/live/<ERP_DOMAIN>/fullchain.pem` 和 `privkey.pem`。发布脚本仅创建 ERP 域名的 HTTP ACME 路由，通过 Certbot webroot 申请独立证书；保留验证路由供续期，续期后平滑加载 Nginx。申请失败恢复原 ERP 虚拟主机。该模式需要域名 DNS 正确指向 ECS、80 端口公网可达及已安装 Certbot。
+
+若本机 PostgreSQL 对 ERP 使用 Ident，root 部署可在确认目标库、登录账号和密码已存在后，按原密码存储格式增加仅该库、该账号、127.0.0.1 的密码认证规则。修改前保存 pg_hba.conf 权限 0600 的备份，仅 reload；连接或结构校验失败立即恢复原规则。不修改账号密码、其他库规则或重启数据库。
+
 部署先只读验证数据库连接和结构，拒绝自动迁移缺少 ERP/Flyway 标记的非空数据库；每次应用切换前通过 pg_dump 备份目标库到 `.deploy-backups/database-before-*.dump`。空库允许 Flyway 初始化，但不会自动迁入本机历史业务数据。已有非 Flyway ERP 数据库应先完成可审查的离线迁移，不能自动 baseline。
 
 仅管理 `/etc/nginx/conf.d/pcba-erp.conf`，拒绝覆盖无管理标记的文件或抢占已有同域名虚拟主机。引用已有证书，执行 `nginx -t` 后平滑 reload，并验证带有效 TLS 的 HTTPS readiness；失败恢复 ERP 虚拟主机和可用旧镜像。其他站点配置、数据库实例和证书文件不作修改。
@@ -87,6 +91,7 @@ mkdir -p docker/nginx/ssl
 | ECS_USER | 专用 SSH 部署账号 |
 | ECS_SSH_KEY | 该账号的专用 SSH 私钥，使用无口令自动化密钥 |
 | ECS_KNOWN_HOSTS | 经可信渠道核对指纹后的 SSH known_hosts 完整记录；非 22 端口记录使用 `[host]:port` |
+| ERP_ENV | 完整生产 `.env`；共享模式首次初始化需要，已有服务器文件保留 |
 
 私钥对应的公钥需要放入 ECS 部署账号的 `~/.ssh/authorized_keys`。
 不关闭主机指纹校验，不将私钥、`.env` 或 OSS 凭据提交仓库。可以在可信管理机采集公钥后，与 ECS 控制台/管理员提供的指纹核对，再保存到 Secret。
@@ -98,6 +103,7 @@ mkdir -p docker/nginx/ssl
 | DEPLOY_ENABLED | 填 `true` 开启 CD；未设置时仅 CI 和镜像发布 |
 | DEPLOY_PATH | `/opt/pcba-erp`，绝对路径，仅使用字母、数字、下划线、连字符及 `/` |
 | ECS_PORT | `22` |
+| ERP_DOMAIN | 只读预检使用的正式域名；实际服务域名来自 ERP_ENV / 服务器 .env |
 
 GHCR 发布使用工作流自动生成的 GITHUB_TOKEN，无需另填长期仓库令牌。工作流给发布 job packages:write，部署 job packages:read；镜像 source 标签关联本仓库。
 首次发布后检查 GHCR 包的 Actions access 是否允许本仓库读取；不要公开业务镜像来绕过权限问题。
@@ -127,3 +133,5 @@ SSH 失败核对账号、公钥、主机指纹和安全组；拉取镜像失败�
 健康检查失败在 ECS 使用 Compose logs 查看原因，日志输出不要包含 `.env` 或完整 Compose 展开配置。
 
 实现依据：[GitHub 镜像发布](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)、[GHCR 权限](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)、[部署环境](https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments)。
+
+共享部署依据：[Compose 合并与覆盖](https://docs.docker.com/reference/compose-file/merge/)、[PostgreSQL 密码认证](https://www.postgresql.org/docs/17/auth-password.html)、[Certbot webroot](https://eff-certbot.readthedocs.io/en/stable/using.html)。

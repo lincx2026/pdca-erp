@@ -46,6 +46,26 @@ class EcsTests(unittest.TestCase):
             self.assertFalse(ecs_db.backup(self.env,str(target)))
         self.assertFalse(target.exists())
 
+    @unittest.skipIf(os.name=='nt','Local PostgreSQL setup targets Linux')
+    def test_scoped_authentication_preserves_existing_rules_and_restores_on_failure(self):
+        for successful in (True,False):
+            target=self.root/'pg_hba.conf';previous=b'host all all 127.0.0.1/32 ident\n'
+            target.write_bytes(previous)
+            def run(arguments,**kwargs):
+                query=arguments[-1]
+                if arguments[0]=='psql':return self.result(code=1,error='Ident authentication failed')
+                if query=='SHOW hba_file':return self.result(str(target))
+                if 'pg_authid' in query:return self.result('scram-sha-256')
+                return self.result('t')
+            with patch.object(ecs_db.subprocess,'run',side_effect=run),patch.object(ecs_db.os,'geteuid',return_value=0),\
+                patch.object(ecs_db.time,'sleep'),patch.object(ecs_db,'check',return_value=successful):
+                self.assertEqual(successful,ecs_db.prepare_local(self.env))
+            content=target.read_bytes()
+            if successful:
+                self.assertTrue(content.endswith(previous))
+                self.assertIn(b'host "pcba_erp" "pcba" 127.0.0.1/32 scram-sha-256',content)
+            else:self.assertEqual(previous,content)
+
     def nginx_command(self,arguments):
         if '-checkhost' in arguments:return self.result('Hostname erp.example.com does match certificate')
         if arguments[0]=='curl':return self.result('{"status":"UP"}')
@@ -74,6 +94,19 @@ class EcsTests(unittest.TestCase):
         with patch.object(ecs_site,'command',side_effect=self.nginx_command):ecs_site.apply(self.env,target)
         self.assertIn('proxy_pass http://127.0.0.1:18080',target.read_text())
         self.assertEqual('test-only',(self.root/'key').read_text())
+
+    @unittest.skipIf(os.name=='nt','Automatic TLS targets Linux')
+    def test_certificate_failure_restores_previous_erp_virtual_host(self):
+        with self.env.open('a') as output:
+            output.write('ERP_TLS_AUTO=true\nERP_TLS_CERT=/etc/letsencrypt/live/erp.example.com/fullchain.pem\n'
+                'ERP_TLS_KEY=/etc/letsencrypt/live/erp.example.com/privkey.pem\n')
+        target=self.root/'nginx.conf';previous=ecs_site.MARKER.encode()+b'old configuration'
+        target.write_bytes(previous)
+        def command(arguments):
+            return self.result(code=1) if arguments[0]=='certbot' else self.nginx_command(arguments)
+        with patch.object(ecs_site,'command',side_effect=command):
+            with self.assertRaisesRegex(RuntimeError,'issuance failed'):ecs_site.prepare_certificate(self.env,target)
+        self.assertEqual(previous,target.read_bytes())
 
     @unittest.skipIf(os.name=='nt' or not shutil.which('docker'),'Compose validation runs on Linux CI')
     def test_shared_compose_does_not_publish_existing_service_ports(self):
