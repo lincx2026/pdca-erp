@@ -27,6 +27,10 @@ def check(path,inspect=False):
             'no pg_hba.conf entry':'CONNECTION_POLICY_REJECTED','Connection refused':'CONNECTION_REFUSED','timeout':'CONNECTION_TIMEOUT'}
         reason=next((v for k,v in reasons.items() if k in result.stderr),'CONNECTION_FAILED')
         print('Configured PostgreSQL authentication: FAIL ('+reason+')')
+        if reason=='CONNECTION_FAILED':
+            detail=result.stderr
+            if environment['PGPASSWORD']:detail=detail.replace(environment['PGPASSWORD'],'[REDACTED]')
+            print('PostgreSQL diagnostic: '+detail[:600].strip())
         return False
     row=next(line for line in result.stdout.splitlines() if '|' in line)
     name,count,flyway,users=row.split('|')

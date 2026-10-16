@@ -85,7 +85,7 @@ class EcsTests(unittest.TestCase):
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
         self.assertEqual(0,result.returncode,result.stderr)
         services=json.loads(result.stdout)['services']
-        self.assertIn('managed-postgres',services['postgres']['profiles'])
+        self.assertNotIn('postgres',services)
         self.assertEqual('16379',services['redis']['ports'][0]['published'])
         for name in ('backend','frontend'):
             self.assertEqual('host',services[name]['network_mode'])

@@ -24,6 +24,10 @@ checker=Path(sys.argv[1]).parent/'ecs_db.py'
 subprocess.run(['python3',str(checker),sys.argv[1],'--inspect'])
 domain=sys.argv[2]
 nginx=subprocess.run(['nginx','-T'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+print('Host Nginx configuration status: '+str(nginx.returncode))
+if nginx.returncode:
+    for line in nginx.stderr.splitlines():
+        if '[emerg]' in line or '[error]' in line:print('Nginx diagnostic: '+line[:400])
 configuration=nginx.stdout+nginx.stderr
 names=re.findall(r'(?m)^\s*server_name\s+([^;]+);',configuration)
 print('Existing exact ERP virtual host: '+str(any(domain in line.split() for line in names)))
@@ -44,6 +48,14 @@ for match in re.finditer(r'(?m)^\s*ssl_certificate\s+([^;]+);',configuration):
     print('Matching existing certificate: '+certificate)
     print('Matching existing key file: '+key_path)
 print('Reusable ERP TLS certificate: '+('YES' if found else 'NO'))
+values={}
+for line in Path(sys.argv[1]).read_text(encoding='utf-8-sig').splitlines():
+    if '=' in line and not line.lstrip().startswith('#'):
+        key,value=line.split('=',1);values[key.strip()]=value.strip()
+certificate=values.get('ERP_TLS_CERT','')
+if certificate and Path(certificate).is_file():
+    check=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkhost',domain],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+    print('Configured TLS host check: '+str(check.returncode)+' '+check.stdout.strip())
 print('Certbot available: '+str(subprocess.run(['sh','-c','command -v certbot >/dev/null']).returncode==0))
 PY
 fi
