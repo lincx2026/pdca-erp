@@ -34,6 +34,8 @@ java -jar pcba-erp-admin/target/pcba-erp.jar
 
 ## 生产部署
 
+GitHub Actions 自动测试、镜像发布及阿里云 ECS 部署步骤见 [CI/CD 配置](docs/ci-cd.md)。
+
 服务器需要 Docker Compose v2、Bash。构建在 Maven/Node 容器中完成。
 创建生产 `.env`，设置 OSS 和 ERP_DOMAIN，将自己的域名证书放入
 `docker/nginx/ssl/fullchain.pem`、`private.key`，再执行：

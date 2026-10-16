@@ -17,6 +17,7 @@ STUB=r'''#!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$PCBA_TEST_LOG"
 if [[ "$1" == run && "${PCBA_TEST_FAIL_BUILD:-0}" == 1 ]]; then exit 3; fi
+if [[ "$1" == pull && "${PCBA_TEST_FAIL_PULL:-0}" == 1 ]]; then exit 4; fi
 if [[ "$1" == inspect ]]; then
   if [[ "$*" == *Config.Image* ]]; then echo "pcba-erp/test:old"
   elif [[ "$*" == *State.Health* ]]; then
@@ -33,7 +34,7 @@ fi
 '''
 
 class DeploymentTests(unittest.TestCase):
-    def run_release(self,**flags):
+    def run_release(self,scope="all",**flags):
         self.temp=tempfile.TemporaryDirectory(prefix="pcba-deploy-test-")
         self.addCleanup(self.temp.cleanup)
         directory=Path(self.temp.name)
@@ -47,8 +48,8 @@ class DeploymentTests(unittest.TestCase):
             (directory/".deploy-backups").mkdir()
             (directory/".deploy-backups/previous.yml").write_text("services: {}\n",encoding="utf-8")
         env={**os.environ,**flags,"PCBA_TEST_LOG":posix(log),"PCBA_TEST_STATE":posix(directory/"failed")}
-        result=subprocess.run([BASH,"-c",'export PATH="$1:$PATH"; exec bash "$2" all',
-            "--",posix(directory/"bin"),posix(directory/"deploy.sh")],env=env,
+        result=subprocess.run([BASH,"-c",'export PATH="$1:$PATH"; exec bash "$2" "$3"',
+            "--",posix(directory/"bin"),posix(directory/"deploy.sh"),scope],env=env,
             stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=20)
         return result,log.read_text(encoding="utf-8"),directory
 
@@ -76,5 +77,77 @@ class DeploymentTests(unittest.TestCase):
         result,log,_=self.run_release(PCBA_TEST_FAIL_HEALTH="1",PCBA_TEST_PARTIAL="1")
         self.assertNotEqual(0,result.returncode)
         self.assertNotIn("previous.yml up",log)
+
+    def test_ci_images_are_pulled_before_switching_and_persisted(self):
+        backend="ghcr.io/test/erp-backend@sha256:"+"a"*64
+        frontend="ghcr.io/test/erp-frontend@sha256:"+"b"*64
+        result,log,directory=self.run_release(scope="images",BACKEND_IMAGE=backend,FRONTEND_IMAGE=frontend)
+        self.assertEqual(0,result.returncode,result.stdout)
+        self.assertLess(log.index("pull "+frontend),log.index("up -d postgres redis"))
+        self.assertNotIn("build backend",log)
+        self.assertNotIn("run --rm",log)
+        current=(directory/".deploy-backups/current.env").read_text()
+        self.assertIn(backend,current)
+        self.assertIn(frontend,current)
+
+    def test_failed_image_pull_does_not_change_containers(self):
+        image="ghcr.io/test/erp@sha256:"+"a"*64
+        result,log,_=self.run_release(scope="images",BACKEND_IMAGE=image,FRONTEND_IMAGE=image,PCBA_TEST_FAIL_PULL="1")
+        self.assertEqual(4,result.returncode,result.stdout)
+        self.assertNotIn("up -d",log)
+
+    def test_ci_images_reject_mutable_tags(self):
+        result,log,_=self.run_release(scope="images",BACKEND_IMAGE="ghcr.io/test/erp:latest",FRONTEND_IMAGE="ghcr.io/test/erp:latest")
+        self.assertEqual(2,result.returncode,result.stdout)
+        self.assertNotIn("pull ",log)
+
+    def run_ecs_release(self,**flags):
+        _,_,directory=self.run_release(scope="status")
+        log=directory/"commands.log";log.write_text("")
+        certificates=directory/"docker/nginx/ssl";certificates.mkdir(parents=True)
+        for name in ("fullchain.pem","private.key"):(certificates/name).write_text("test-only")
+        shutil.copyfile(ROOT/"scripts/ecs_release.sh",directory/"ecs_release.sh")
+        git=directory/"bin/git"
+        git.write_text('''#!/usr/bin/env bash
+set -eu
+printf 'git %s\\n' "$*" >> "$PCBA_TEST_LOG"
+if [[ "$1" == diff && "${PCBA_TEST_DIRTY:-0}" == 1 ]]; then exit 1; fi
+if [[ "$1" == rev-parse ]]; then
+  if [[ "$2" == HEAD || "${PCBA_TEST_STALE:-0}" == 1 ]]; then printf 'a%.0s' {1..40}
+  else printf 'b%.0s' {1..40}; fi
+  printf '\\n'
+fi
+''',encoding="utf-8",newline="\n");git.chmod(0o755)
+        image="ghcr.io/test/erp@sha256:"+"c"*64
+        env={**os.environ,**flags,"PCBA_TEST_LOG":posix(log),"PCBA_TEST_STATE":posix(directory/"failed")}
+        result=subprocess.run([BASH,"-c",'export PATH="$1:$PATH"; exec bash "$2" "$3" "$4" test/erp "$5" "$5"',
+            "--",posix(directory/"bin"),posix(directory/"ecs_release.sh"),posix(directory),"b"*40,image],
+            env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=20)
+        return result,log.read_text(),directory
+
+    @unittest.skipIf(os.name=="nt","ECS script targets Linux and requires flock")
+    def test_ecs_release_records_successful_revision(self):
+        result,_,directory=self.run_ecs_release()
+        self.assertEqual(0,result.returncode,result.stdout)
+        self.assertEqual("b"*40,(directory/".deploy-backups/revision").read_text().strip())
+
+    @unittest.skipIf(os.name=="nt","ECS script targets Linux and requires flock")
+    def test_ecs_release_restores_source_after_failed_health_check(self):
+        result,log,_=self.run_ecs_release(PCBA_TEST_FAIL_HEALTH="1")
+        self.assertNotEqual(0,result.returncode)
+        self.assertIn("git checkout --detach "+"a"*40,log)
+        self.assertIn("--no-build --no-deps --force-recreate backend frontend",log)
+
+    @unittest.skipIf(os.name=="nt","ECS script targets Linux and requires flock")
+    def test_ecs_release_rejects_dirty_checkout(self):
+        result,log,_=self.run_ecs_release(PCBA_TEST_DIRTY="1")
+        self.assertEqual(2,result.returncode,result.stdout)
+        self.assertNotIn("git checkout",log)
+
+    @unittest.skipIf(os.name=="nt","ECS script targets Linux and requires flock")
+    def test_ecs_release_rejects_stale_commit(self):
+        result,log,_=self.run_ecs_release(PCBA_TEST_STALE="1")
+        self.assertEqual(2,result.returncode,result.stdout)
+        self.assertNotIn("git checkout",log)
 
 if __name__=="__main__": unittest.main()

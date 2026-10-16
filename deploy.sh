@@ -7,9 +7,13 @@ cd "$ROOT"
 command -v docker >/dev/null
 docker compose version >/dev/null
 [[ -f .env ]] || { echo 'Create .env with python scripts/init-env.py'; exit 2; }
-COMPOSE=(docker compose --env-file "$ROOT/.env" -f "$ROOT/docker/docker-compose.yml")
 BACKUPS="$ROOT/.deploy-backups"
 mkdir -p "$BACKUPS"
+COMPOSE=(docker compose --env-file "$ROOT/.env")
+if [[ -f "$BACKUPS/current.env" ]]; then
+  COMPOSE+=(--env-file "$BACKUPS/current.env")
+fi
+COMPOSE+=(-f "$ROOT/docker/docker-compose.yml")
 RELEASE="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 SCOPE="${1:-all}"
 SNAPSHOT_READY=0
@@ -54,11 +58,20 @@ snapshot() {
 
 rollback() {
   [[ -f "$BACKUPS/previous.yml" ]] || { echo 'No complete rollback snapshot.'; return 1; }
-  "${COMPOSE[@]}" -f "$BACKUPS/previous.yml" up -d --no-deps --force-recreate backend
-  wait_healthy backend
-  "${COMPOSE[@]}" -f "$BACKUPS/previous.yml" up -d --no-deps --force-recreate frontend
-  wait_healthy frontend
+  "${COMPOSE[@]}" -f "$BACKUPS/previous.yml" up -d --no-deps --force-recreate backend || return 1
+  wait_healthy backend || return 1
+  "${COMPOSE[@]}" -f "$BACKUPS/previous.yml" up -d --no-deps --force-recreate frontend || return 1
+  wait_healthy frontend || return 1
+  BACKEND_IMAGE="$(image_for backend)"
+  FRONTEND_IMAGE="$(image_for frontend)"
+  persist_images || return 1
   echo 'Application images restored. Database migrations remain applied.'
+}
+
+persist_images() {
+  [[ -n "$BACKEND_IMAGE" && -n "$FRONTEND_IMAGE" ]] || return 1
+  printf 'BACKEND_IMAGE=%s\nFRONTEND_IMAGE=%s\n' "$BACKEND_IMAGE" "$FRONTEND_IMAGE" > "$BACKUPS/current.env.tmp"
+  mv "$BACKUPS/current.env.tmp" "$BACKUPS/current.env"
 }
 
 build_backend() {
@@ -79,19 +92,30 @@ case "$SCOPE" in
   status) "${COMPOSE[@]}" ps; exit 0 ;;
   rollback) rollback; exit 0 ;;
   sql) echo 'Add a versioned migration under admin/src/main/resources/db/migration, then deploy be. No legacy SQL is executed.'; exit 2 ;;
-  all|be|fe) ;;
-  *) echo 'Usage: bash deploy.sh all|be|fe|status|rollback'; exit 2 ;;
+  all|be|fe|images) ;;
+  *) echo 'Usage: bash deploy.sh all|be|fe|images|status|rollback'; exit 2 ;;
 esac
 
-export BACKEND_IMAGE="$(image_for backend)"
-export FRONTEND_IMAGE="$(image_for frontend)"
-if [[ "$SCOPE" != fe ]]; then
-  export BACKEND_IMAGE="pcba-erp/backend:$RELEASE"
-  build_backend
-fi
-if [[ "$SCOPE" != be ]]; then
-  export FRONTEND_IMAGE="pcba-erp/frontend:$RELEASE"
-  build_frontend
+if [[ "$SCOPE" == images ]]; then
+  for image in "${BACKEND_IMAGE:-}" "${FRONTEND_IMAGE:-}"; do
+    [[ "$image" =~ ^ghcr\.io/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$ ]] || {
+      echo 'images requires BACKEND_IMAGE and FRONTEND_IMAGE pinned to GHCR SHA-256 digests.'; exit 2;
+    }
+  done
+  export BACKEND_IMAGE FRONTEND_IMAGE
+  docker pull "$BACKEND_IMAGE"
+  docker pull "$FRONTEND_IMAGE"
+else
+  export BACKEND_IMAGE="$(image_for backend)"
+  export FRONTEND_IMAGE="$(image_for frontend)"
+  if [[ "$SCOPE" != fe ]]; then
+    export BACKEND_IMAGE="pcba-erp/backend:$RELEASE"
+    build_backend
+  fi
+  if [[ "$SCOPE" != be ]]; then
+    export FRONTEND_IMAGE="pcba-erp/frontend:$RELEASE"
+    build_frontend
+  fi
 fi
 [[ -n "$BACKEND_IMAGE" && -n "$FRONTEND_IMAGE" ]] || { echo 'First deployment requires all.'; exit 2; }
 "${COMPOSE[@]}" config --quiet
@@ -114,6 +138,7 @@ wait_healthy backend
 # Recreate the proxy after backend changes so its upstream DNS is refreshed.
 "${COMPOSE[@]}" up -d --no-deps --force-recreate frontend
 wait_healthy frontend
+persist_images
 trap - ERR
 "${COMPOSE[@]}" ps
 echo "Release $RELEASE is healthy."

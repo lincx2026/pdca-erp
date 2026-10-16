@@ -59,6 +59,7 @@ $RECYCLE.BIN/
 
 # ===== Temporary / deploy working dirs =====
 .deploy-tmp/
+.deploy.lock
 deploy-v*.tar.gz
 deploy-v*.ps1
 deploy-v*.sh

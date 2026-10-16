@@ -1,0 +1,223 @@
+name: CI and ECS deployment
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to ECS after successful checks (requires DEPLOY_ENABLED)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Test and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pcba_erp
+          POSTGRES_PASSWORD: postgres-test-only
+        ports: [55432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pcba_erp"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/**/pom.xml
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Start disposable Redis
+        run: |
+          docker run -d --name pcba-redis-ci -p 127.0.0.1:56379:6379 \
+            redis:7.2.4-alpine redis-server --requirepass redis-test-only
+          for attempt in {1..30}; do
+            if docker exec pcba-redis-ci redis-cli -a redis-test-only ping 2>/dev/null | grep -qx PONG; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Deployment script checks
+        run: |
+          bash -n deploy.sh scripts/ecs_release.sh
+          python3 scripts/test_deployment.py
+      - name: Backend tests and package
+        working-directory: backend
+        env:
+          PCBA_INTEGRATION_TESTS: 'true'
+        run: mvn -B -ntp verify -pl pcba-erp-admin -am
+      - name: Frontend production build
+        working-directory: frontend
+        env:
+          VITE_API_BASE: /api
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports
+          path: backend/**/target/surefire-reports/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Backend artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-jar
+          path: backend/pcba-erp-admin/target/pcba-erp.jar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Frontend artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish immutable images
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend: ${{ steps.names.outputs.backend }}@${{ steps.backend.outputs.digest }}
+      frontend: ${{ steps.names.outputs.frontend }}@${{ steps.frontend.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: backend-jar
+          path: backend/pcba-erp-admin/target/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+      - id: names
+        run: |
+          echo "backend=ghcr.io/${GITHUB_REPOSITORY,,}-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/${GITHUB_REPOSITORY,,}-frontend" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Backend image
+        id: backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/backend/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.names.outputs.backend }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: Frontend image
+        id: frontend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/frontend/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.names.outputs.frontend }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    name: Deploy to Alibaba Cloud ECS
+    needs: publish
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || inputs.deploy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: production-ecs
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: SSH deployment
+        shell: bash
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+          ECS_KNOWN_HOSTS: ${{ secrets.ECS_KNOWN_HOSTS }}
+          ECS_PORT: ${{ vars.ECS_PORT || '22' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/pcba-erp' }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend }}
+          FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend }}
+        run: |
+          for name in ECS_HOST ECS_USER ECS_SSH_KEY ECS_KNOWN_HOSTS; do
+            [[ -n "${!name}" ]] || { echo "Missing deployment secret: $name"; exit 2; }
+          done
+          [[ "$ECS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || exit 2
+          [[ "$ECS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]] || exit 2
+          [[ "$ECS_PORT" =~ ^[0-9]{1,5}$ && "$ECS_PORT" -ge 1 && "$ECS_PORT" -le 65535 ]] || exit 2
+          [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9_/-]+$ && "$DEPLOY_PATH" != / && "$DEPLOY_PATH" != *..* ]] || exit 2
+          key_dir="$RUNNER_TEMP/ecs-ssh"
+          install -d -m 700 "$key_dir"
+          printf '%s\n' "$ECS_SSH_KEY" > "$key_dir/key"
+          printf '%s\n' "$ECS_KNOWN_HOSTS" > "$key_dir/known_hosts"
+          chmod 600 "$key_dir/key" "$key_dir/known_hosts"
+          ssh_args=(-i "$key_dir/key" -p "$ECS_PORT" -o BatchMode=yes -o ConnectTimeout=20
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=5
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$key_dir/known_hosts")
+          target="$ECS_USER@$ECS_HOST"
+          auth_dir=''
+          cleanup() {
+            if [[ "$auth_dir" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+$ ]]; then
+              ssh "${ssh_args[@]}" "$target" "rm -rf -- $auth_dir" || true
+            fi
+            rm -f "$key_dir/key" "$key_dir/known_hosts"
+          }
+          trap cleanup EXIT
+          auth_dir="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-auth.XXXXXXXX')"
+          [[ "$auth_dir" =~ ^/tmp/pcba-erp-auth\.[a-zA-Z0-9]+$ ]] || exit 2
+          printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_args[@]}" "$target" \
+            "docker --config $auth_dir login ghcr.io -u $GITHUB_ACTOR --password-stdin"
+          ssh "${ssh_args[@]}" "$target" \
+            "DOCKER_CONFIG=$auth_dir bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $BACKEND_IMAGE $FRONTEND_IMAGE" \
+            < scripts/ecs_release.sh
