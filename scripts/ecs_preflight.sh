@@ -18,21 +18,10 @@ for port in 80 443 3306 5432 6379 8080 18080 18081 18443 15432 16379; do
 done
 if [[ -s "${2:-}" ]]; then
   python3 - "$2" "${3:?domain required}" <<'PY'
-import os,re,subprocess,sys,shlex
+import re,subprocess,sys,shlex
 from pathlib import Path
-settings={}
-for line in Path(sys.argv[1]).read_text(encoding='utf-8-sig').splitlines():
-    if '=' in line and not line.lstrip().startswith('#'):
-        key,value=line.split('=',1);settings[key.strip()]=value.strip()
-environment={**os.environ,'PGHOST':settings.get('DB_HOST','127.0.0.1'),'PGPORT':settings.get('DB_PORT','5432'),
-    'PGDATABASE':settings.get('POSTGRES_DB','pcba_erp'),'PGUSER':settings.get('POSTGRES_USER','pcba'),
-    'PGPASSWORD':settings.get('POSTGRES_PASSWORD',''),'PGSSLMODE':settings.get('DB_SSLMODE','disable'),'PGCONNECT_TIMEOUT':'10'}
-query="BEGIN READ ONLY; SELECT current_database(), (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'),to_regclass('public.flyway_schema_history') IS NOT NULL,to_regclass('public.sys_user') IS NOT NULL; ROLLBACK;"
-result=subprocess.run(['psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-c',query],env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
-print('Configured PostgreSQL authentication: '+('PASS' if result.returncode==0 else 'FAIL'))
-if result.returncode==0:
-    for line in result.stdout.splitlines():
-        if '|' in line:print('ERP database metadata (name|tables|Flyway|sys_user): '+line)
+checker=Path(sys.argv[1]).parent/'ecs_db.py'
+subprocess.run(['python3',str(checker),sys.argv[1],'--inspect'])
 domain=sys.argv[2]
 nginx=subprocess.run(['nginx','-T'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
 configuration=nginx.stdout+nginx.stderr
@@ -45,7 +34,7 @@ for match in re.finditer(r'(?m)^\s*ssl_certificate\s+([^;]+);',configuration):
     if not Path(certificate).is_file():continue
     valid=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkhost',domain],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     expires=subprocess.run(['openssl','x509','-in',certificate,'-noout','-checkend','0'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    if valid.returncode or expires.returncode:continue
+    if valid.returncode or b'does match certificate' not in valid.stdout or expires.returncode:continue
     key=re.search(r'(?m)^\s*ssl_certificate_key\s+([^;]+);',configuration[match.end():match.end()+2048])
     if not key:continue
     try:key_path=shlex.split(key.group(1))[0]

@@ -34,6 +34,7 @@ auth_dir="$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pcba-erp-auth.XXXXXXX
 if [[ -n "${ERP_ENV:-}" ]]; then
   printf '%s\n' "$ERP_ENV" | ssh "${ssh_args[@]}" "$target" "umask 077; cat > $auth_dir/runtime.env"
 fi
+ssh "${ssh_args[@]}" "$target" "cat > $auth_dir/ecs_db.py" < scripts/ecs_db.py
 if [[ "$operation" == inspect ]]; then
   ERP_DOMAIN="${ERP_DOMAIN:-erp.thinkfiter.com}"
   [[ "$ERP_DOMAIN" =~ ^[a-zA-Z0-9.-]+$ ]] || exit 2
@@ -45,6 +46,6 @@ else
   printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_args[@]}" "$target" \
     "docker --config $auth_dir login ghcr.io -u $GITHUB_ACTOR --password-stdin"
   ssh "${ssh_args[@]}" "$target" \
-    "DOCKER_CONFIG=$auth_dir bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $BACKEND_IMAGE $FRONTEND_IMAGE" \
+    "DOCKER_CONFIG=$auth_dir bash -s -- $DEPLOY_PATH $GITHUB_SHA $GITHUB_REPOSITORY $BACKEND_IMAGE $FRONTEND_IMAGE $auth_dir/runtime.env" \
     < scripts/ecs_release.sh
 fi

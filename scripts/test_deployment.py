@@ -103,6 +103,7 @@ class DeploymentTests(unittest.TestCase):
 
     def run_ecs_release(self,**flags):
         _,_,directory=self.run_release(scope="status")
+        (directory/".git").mkdir()
         log=directory/"commands.log";log.write_text("")
         certificates=directory/"docker/nginx/ssl";certificates.mkdir(parents=True)
         for name in ("fullchain.pem","private.key"):(certificates/name).write_text("test-only")
@@ -149,5 +150,13 @@ fi
         result,log,_=self.run_ecs_release(PCBA_TEST_STALE="1")
         self.assertEqual(2,result.returncode,result.stdout)
         self.assertNotIn("git checkout",log)
+
+    def test_shared_mode_does_not_start_postgres(self):
+        image="ghcr.io/test/erp@sha256:"+"a"*64
+        result,log,_=self.run_release(scope="images",DEPLOY_MODE="shared",BACKEND_IMAGE=image,FRONTEND_IMAGE=image)
+        self.assertEqual(0,result.returncode,result.stdout)
+        self.assertIn("docker-compose.shared.yml",log)
+        self.assertIn("up -d redis",log)
+        self.assertNotIn("up -d postgres",log)
 
 if __name__=="__main__": unittest.main()

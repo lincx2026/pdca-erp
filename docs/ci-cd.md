@@ -28,6 +28,32 @@ flowchart LR
 
 ## ECS 首次准备
 
+### 共享 ECS（已有 PostgreSQL、Nginx 和其他项目）
+
+生产环境 Secret `ERP_ENV` 保存完整运行 `.env`，仅 production 部署和只读预检使用，不进入镜像或 Git。首次发布会在目标目录不存在时克隆仓库，并以 0600 权限创建 `.env`；已有服务器 `.env` 不会被覆盖。后续运行配置须在服务器同步更新，更新 Secret 仅影响首次初始化和预检。
+
+运行配置设置 `DEPLOY_MODE=shared`，填写既有 PostgreSQL 的 DB_HOST、DB_PORT、POSTGRES_DB、POSTGRES_USER、POSTGRES_PASSWORD、DB_SSLMODE，并设置域名和 CORS。另设：
+
+```dotenv
+ERP_DOMAIN=erp.thinkfiter.com
+CORS_ALLOWED_ORIGINS=https://erp.thinkfiter.com
+ERP_HTTP_PORT=18080
+BACKEND_PORT=18081
+ERP_REDIS_PORT=16379
+ERP_TLS_CERT=/etc/letsencrypt/live/your-domain/fullchain.pem
+ERP_TLS_KEY=/etc/letsencrypt/live/your-domain/privkey.pem
+```
+
+证书路径指向服务器上覆盖正式域名的有效证书。共享模式要求 Linux、Compose >= 2.24.4、Python >= 3.6、psql、pg_dump、Nginx、OpenSSL、curl。后端和前端使用主机网络并仅监听回环地址，Redis 仅发布回环 16379；不启动 Compose PostgreSQL、不占用已有 Redis 6379。选定端口须未被占用。
+
+部署先只读验证数据库连接和结构，拒绝自动迁移缺少 ERP/Flyway 标记的非空数据库；每次应用切换前通过 pg_dump 备份目标库到 `.deploy-backups/database-before-*.dump`。空库允许 Flyway 初始化，但不会自动迁入本机历史业务数据。已有非 Flyway ERP 数据库应先完成可审查的离线迁移，不能自动 baseline。
+
+仅管理 `/etc/nginx/conf.d/pcba-erp.conf`，拒绝覆盖无管理标记的文件或抢占已有同域名虚拟主机。引用已有证书，执行 `nginx -t` 后平滑 reload，并验证带有效 TLS 的 HTTPS readiness；失败恢复 ERP 虚拟主机和可用旧镜像。其他站点配置、数据库实例和证书文件不作修改。
+
+首次发布前运行 Actions 的 **ECS read-only preflight** 查看连接、端口、域名和证书检查；预检不会创建业务表或修改服务。正式域名 DNS 应指向该 ECS。
+
+### 独立 ECS（默认 standalone 模式）
+
 安装 Git、Bash、Docker Engine、Compose v2、flock（util-linux）。部署账号需要目标目录写权限和 Docker 权限。
 ECS 需能访问 github.com、ghcr.io 及基础镜像仓库；网络不通时先配置网络出口或改用可访问的镜像仓库。
 安全组开放域名服务的 80/443，以及供 Actions 连接的 SSH 端口；数据库和 Redis 仅绑定回环地址。

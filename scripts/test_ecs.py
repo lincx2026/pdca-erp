@@ -1,0 +1,97 @@
+"""Check production database guards and Nginx restoration without external changes."""
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import tempfile
+import unittest
+import json
+import os
+import shutil
+import subprocess
+import ecs_db
+import ecs_site
+
+class EcsTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        self.env=self.root/'runtime.env'
+        self.env.write_text('ERP_DOMAIN=erp.example.com\nPOSTGRES_PASSWORD=test-private\n'
+            'ERP_TLS_CERT='+str(self.root/'cert')+'\nERP_TLS_KEY='+str(self.root/'key')+'\n')
+        for name in ('cert','key'):(self.root/name).write_text('test-only')
+
+    def result(self,output='',code=0,error=''):
+        return SimpleNamespace(returncode=code,stdout=output,stderr=error)
+
+    def test_existing_unrelated_database_cannot_be_migrated(self):
+        with patch.object(ecs_db.subprocess,'run',return_value=self.result('other|10|f|f\n')):
+            self.assertFalse(ecs_db.check(self.env))
+            self.assertTrue(ecs_db.check(self.env,inspect=True))
+
+    def test_empty_or_known_erp_database_is_accepted(self):
+        for row in ('erp|0|f|f\n','erp|100|t|t\n'):
+            with patch.object(ecs_db.subprocess,'run',return_value=self.result(row)):
+                self.assertTrue(ecs_db.check(self.env))
+
+    def test_password_is_passed_only_in_process_environment(self):
+        with patch.object(ecs_db.subprocess,'run',return_value=self.result(code=1,error='password authentication failed')) as run:
+            self.assertFalse(ecs_db.check(self.env))
+            self.assertNotIn('test-private',str(run.call_args.args))
+            self.assertEqual('test-private',run.call_args.kwargs['env']['PGPASSWORD'])
+
+    def test_failed_backup_removes_partial_dump(self):
+        target=self.root/'backup.dump'
+        with patch.object(ecs_db.subprocess,'run',return_value=self.result(code=1)):
+            self.assertFalse(ecs_db.backup(self.env,str(target)))
+        self.assertFalse(target.exists())
+
+    def nginx_command(self,arguments):
+        if '-checkhost' in arguments:return self.result('Hostname erp.example.com does match certificate')
+        if arguments[0]=='curl':return self.result('{"status":"UP"}')
+        return self.result()
+
+    @unittest.skipIf(__import__('os').name=='nt','Production certificate paths target Linux')
+    def test_unmanaged_nginx_file_is_preserved(self):
+        target=self.root/'nginx.conf';target.write_bytes(b'existing unrelated config')
+        with patch.object(ecs_site,'command',side_effect=self.nginx_command):
+            with self.assertRaisesRegex(ValueError,'unmanaged'):ecs_site.apply(self.env,target)
+        self.assertEqual(b'existing unrelated config',target.read_bytes())
+
+    @unittest.skipIf(__import__('os').name=='nt','Production certificate paths target Linux')
+    def test_readiness_failure_restores_previous_virtual_host(self):
+        target=self.root/'nginx.conf';previous=ecs_site.MARKER.encode()+b'previous config'
+        target.write_bytes(previous)
+        def command(arguments):
+            return self.result(code=7) if arguments[0]=='curl' else self.nginx_command(arguments)
+        with patch.object(ecs_site,'command',side_effect=command):
+            with self.assertRaises(RuntimeError):ecs_site.apply(self.env,target)
+        self.assertEqual(previous,target.read_bytes())
+
+    @unittest.skipIf(__import__('os').name=='nt','Production certificate paths target Linux')
+    def test_successful_virtual_host_uses_existing_certificate(self):
+        target=self.root/'nginx.conf'
+        with patch.object(ecs_site,'command',side_effect=self.nginx_command):ecs_site.apply(self.env,target)
+        self.assertIn('proxy_pass http://127.0.0.1:18080',target.read_text())
+        self.assertEqual('test-only',(self.root/'key').read_text())
+
+    @unittest.skipIf(os.name=='nt' or not shutil.which('docker'),'Compose validation runs on Linux CI')
+    def test_shared_compose_does_not_publish_existing_service_ports(self):
+        root=Path(__file__).resolve().parents[1]
+        environment=dict(os.environ,POSTGRES_PASSWORD='test-only',REDIS_PASSWORD='test-only',
+            JWT_SECRET='test-only',BOOTSTRAP_ADMIN_PASSWORD='test-only')
+        result=subprocess.run(['docker','compose','--env-file','/dev/null','-f',str(root/'docker/docker-compose.yml'),
+            '-f',str(root/'docker/docker-compose.shared.yml'),'config','--format','json'],env=environment,
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+        self.assertEqual(0,result.returncode,result.stderr)
+        services=json.loads(result.stdout)['services']
+        self.assertIn('managed-postgres',services['postgres']['profiles'])
+        self.assertEqual('16379',services['redis']['ports'][0]['published'])
+        for name in ('backend','frontend'):
+            self.assertEqual('host',services[name]['network_mode'])
+            self.assertFalse(services[name].get('ports'))
+        self.assertFalse(services['backend'].get('depends_on'))
+        self.assertEqual('127.0.0.1',services['backend']['environment']['SERVER_ADDRESS'])
+        self.assertEqual(1,len(services['frontend']['volumes']))
+
+if __name__=='__main__':unittest.main()

@@ -60,6 +60,7 @@ jobs:
         run: |
           bash -n deploy.sh scripts/ecs_*.sh
           python3 scripts/test_deployment.py
+          python3 scripts/test_ecs.py
       - name: Backend tests and package
         working-directory: backend
         env:
@@ -189,4 +190,5 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BACKEND_IMAGE: ${{ needs.publish.outputs.backend }}
           FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend }}
+          ERP_ENV: ${{ secrets.ERP_ENV }}
         run: bash scripts/ecs_ssh.sh deploy

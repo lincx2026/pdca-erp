@@ -14,6 +14,12 @@ if [[ -f "$BACKUPS/current.env" ]]; then
   COMPOSE+=(--env-file "$BACKUPS/current.env")
 fi
 COMPOSE+=(-f "$ROOT/docker/docker-compose.yml")
+DEPLOY_MODE="${DEPLOY_MODE:-$(sed -n 's/^DEPLOY_MODE=//p' "$ROOT/.env" | tail -n 1)}"
+DEPLOY_MODE="${DEPLOY_MODE:-standalone}"
+[[ "$DEPLOY_MODE" == standalone || "$DEPLOY_MODE" == shared ]] || { echo 'Invalid DEPLOY_MODE'; exit 2; }
+if [[ "$DEPLOY_MODE" == shared ]]; then
+  COMPOSE+=(-f "$ROOT/docker/docker-compose.shared.yml")
+fi
 RELEASE="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 SCOPE="${1:-all}"
 SNAPSHOT_READY=0
@@ -130,8 +136,12 @@ on_error() {
   exit "$result"
 }
 trap on_error ERR
-"${COMPOSE[@]}" up -d postgres redis
-wait_healthy postgres
+if [[ "$DEPLOY_MODE" == shared ]]; then
+  "${COMPOSE[@]}" up -d redis
+else
+  "${COMPOSE[@]}" up -d postgres redis
+  wait_healthy postgres
+fi
 wait_healthy redis
 "${COMPOSE[@]}" up -d --no-deps backend
 wait_healthy backend
