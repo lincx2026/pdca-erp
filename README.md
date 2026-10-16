@@ -51,7 +51,8 @@ bash deploy.sh status
 Nginx HTTP `/healthz` 返回 200，其他路径跳转 HTTPS；后端 `/actuator/health/readiness` 检查数据库和 Redis。
 外部验收地址为 HTTPS `/api/actuator/health/readiness`。只有 80/443 对外，其余端口仅绑定回环。
 PostgreSQL 数据放在 Docker 命名卷 `pcba-erp-postgres-data`（可通过 POSTGRES_VOLUME_NAME 配置），兼容 Windows 文件权限限制。
-原 `docker/mysql/data`、`docker/minio/data` 不会被修改或删除。不要执行带 `-v` 的 compose down 删除数据库卷。
+旧 MySQL / MinIO 目录不再参与部署；本机历史数据已归档至 `backup/legacy-cleanup-20261015/docker/`，迁移前备份继续保留。
+PostgreSQL 使用命名卷，不依赖 `docker/postgres/`。不要执行带 `-v` 的 compose down 删除数据库卷。
 每天做 pg_dump 异机备份，按恢复目标配置 WAL 归档并演练恢复；OSS 使用版本控制/备份策略。
 
 ## 数据及附件迁移
@@ -117,3 +118,6 @@ mvn test -pl pcba-erp-admin -am
 前端原有严格类型检查错误需单独修复，正式构建仍使用 Vite。
 
 本次本地数据迁移、备份恢复和验收记录见 [迁移记录](docs/migration-20261015.md)。
+
+历史工具及旧构建包保留在本机 `backup/legacy-cleanup-20261015/`，临时迁移环境和可再生成缓存位于 `backup/rebuildable-cache-20261015/`，均不提交 Git。
+清理后本地开发先执行 `npm ci` 恢复前端依赖，再执行 `npm run dev` 或 `npm run build`；后端按前述 Maven 命令重新构建。

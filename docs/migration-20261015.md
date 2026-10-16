@@ -56,3 +56,11 @@ PostgreSQL 使用 `pcba-erp-postgres-data` 命名卷。生产配置域名、HTTP
 - 联调修复了空 STS 令牌导致临时签名链接返回 `403 SignatureDoesNotMatch` 的问题：空白令牌统一传入 null；新增无令牌及有效 STS 参数的签名回归测试。
 - 本次 5 项 OSS 自动化测试通过。SDK 3.18.1 依据令牌是否为 null 判定 STS，参见 [DefaultCredentials 源码](https://github.com/aliyun/aliyun-oss-java-sdk/blob/3.18.1/src/main/java/com/aliyun/oss/common/auth/DefaultCredentials.java#L59)。
 - 生产切换仍需配置生产域名/证书/OSS，停止业务写入后重新执行迁移与独立内容校验，并验收核心写入业务。
+
+## 本机历史目录整理
+
+- `docker/mysql/`、`docker/minio/`、空的 `docker/postgres/`、`db/init/`、`db/patch/` 及旧构建包、调试工具已移至 `backup/legacy-cleanup-20261015/`，保持相对目录结构。
+- 原 MySQL 数据现位于 `backup/legacy-cleanup-20261015/docker/mysql/data/`；原始独立备份和 PostgreSQL 备份继续保留。
+- `.migration-work/`、前端 `node_modules/`、`dist/`、旧打包归档及 Python 缓存已移至 `backup/rebuildable-cache-20261015/`。
+- 直接删除被自动审批拦截，因此此次采用可恢复归档，仅整理工作目录，没有释放对应磁盘空间。
+- 当前 `.env`、PostgreSQL 命名卷、Redis 数据和 HTTPS 证书保留；两份新归档均由 Git 忽略。
