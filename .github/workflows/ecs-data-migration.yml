@@ -11,7 +11,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: production-ecs
+  # Account recovery must not be displaced by a queued application deployment.
+  # The server-side .deploy.lock still serializes all database mutations.
+  group: ${{ (inputs.operation == 'inspect-admin' || inputs.operation == 'reset-admin') && 'production-admin-recovery' || 'production-ecs' }}
   cancel-in-progress: false
 jobs:
   migrate:
