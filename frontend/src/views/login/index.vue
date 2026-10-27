@@ -15,7 +15,7 @@
         <h2 class="form-title">欢迎登录</h2>
         <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="onSubmit">
           <el-form-item prop="username">
-            <el-input v-model="form.username" placeholder="请输入账号" :prefix-icon="User" maxlength="30" show-password />
+            <el-input v-model="form.username" type="text" autocomplete="username" placeholder="请输入账号" :prefix-icon="User" maxlength="30" />
           </el-form-item>
           <el-form-item prop="password">
             <el-input v-model="form.password" type="password" placeholder="请输入密码" :prefix-icon="Lock" show-password maxlength="20" />
