@@ -31,8 +31,8 @@
             </el-form-item>
             <el-form-item label="状态">
               <el-select v-model="query.status" clearable placeholder="全部" style="width:120px">
-                <el-option label="正常" :value="0" />
-                <el-option label="停用" :value="1" />
+                <el-option label="正常" :value="1" />
+                <el-option label="停用" :value="0" />
               </el-select>
             </el-form-item>
             <el-form-item label="创建时间">
@@ -67,10 +67,10 @@
               <template #default="{row}">
                 <el-switch
                   v-if="row.userId !== 1"
-                  :model-value="row.status===0"
+                  :model-value="row.status===1"
                   inline-prompt
                   active-text="启用" inactive-text="停用"
-                  @change="(v)=>changeStatus(row, v?0:1)" />
+                  @change="(v)=>changeStatus(row, v?1:0)" />
                 <el-tag v-else type="success" size="small">超级管理员</el-tag>
               </template>
             </el-table-column>
@@ -135,7 +135,7 @@
           </el-col>
           <el-col :md="12">
             <el-form-item label="状态">
-              <el-radio-group v-model="form.status"><el-radio :value="0">正常</el-radio><el-radio :value="1">停用</el-radio></el-radio-group>
+              <el-radio-group v-model="form.status"><el-radio :value="1">正常</el-radio><el-radio :value="0" :disabled="form.userId===1">停用</el-radio></el-radio-group>
             </el-form-item>
           </el-col>
           <el-col :md="24" v-if="dialog.mode==='add'">
@@ -259,7 +259,7 @@ const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
 const form = reactive<any>({
   userId: undefined, deptId: 100, userName: '', nickName: '', password: '',
-  phonenumber: '', email: '', sex: '2', status: 0, roleIds: [], remark: ''
+  phonenumber: '', email: '', sex: '2', status: 1, roleIds: [], remark: ''
 })
 const rules: FormRules = {
   userName: [{ required: true, message: '请输入账号', trigger: 'blur' }, { min: 2, max: 30 }],
@@ -268,7 +268,7 @@ const rules: FormRules = {
   email: [{ type: 'email', message: '邮箱格式不正确' }]
 }
 function resetForm() {
-  Object.assign(form, { userId: undefined, deptId: 100, userName: '', nickName: '', password: '', phonenumber: '', email: '', sex: '2', status: 0, roleIds: [], remark: '' })
+  Object.assign(form, { userId: undefined, deptId: 100, userName: '', nickName: '', password: '', phonenumber: '', email: '', sex: '2', status: 1, roleIds: [], remark: '' })
 }
 async function openForm(mode: 'add' | 'edit', row?: SysUser) {
   resetForm()

@@ -73,7 +73,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         if (StringUtils.hasText(user.getPassword())) user.setPassword(SecurityUtils.encodePassword(user.getPassword()));
         else user.setPassword(SecurityUtils.encodePassword("123456")); // 默认密码
         if (!StringUtils.hasText(user.getDelFlag())) user.setDelFlag("0");
-        if (user.getStatus() == null) user.setStatus(0);
+        if (user.getStatus() == null) user.setStatus(1);
         baseMapper.insert(user);
         // 分配角色
         if (user.getRoleIds() != null && !user.getRoleIds().isEmpty()) {
@@ -91,7 +91,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         if (!checkPhoneUnique(user)) throw new ServiceException("手机号已存在");
         if (!checkEmailUnique(user)) throw new ServiceException("邮箱已存在");
         if (Long.valueOf(1L).equals(uid)) {
-            if (user.getStatus() != null && user.getStatus() == 1) throw new ServiceException("超级管理员不能停用");
+            if (Integer.valueOf(0).equals(user.getStatus())) throw new ServiceException("超级管理员不能停用");
         }
         baseMapper.updateById(user);
         // 重新分配角色
@@ -108,7 +108,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         return baseMapper.updateById(u);
     }
     @Override public int updateUserStatus(Long userId, Integer status) {
-        if (Long.valueOf(1L).equals(userId) && Integer.valueOf(1).equals(status)) throw new ServiceException("超级管理员不能停用");
+        if (Long.valueOf(1L).equals(userId) && Integer.valueOf(0).equals(status)) throw new ServiceException("超级管理员不能停用");
         SysUser u = new SysUser(); u.setUserId(userId); u.setStatus(status);
         return baseMapper.updateById(u);
     }

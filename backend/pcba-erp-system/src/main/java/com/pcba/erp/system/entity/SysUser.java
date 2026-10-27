@@ -51,7 +51,7 @@ public class SysUser implements Serializable {
     @JsonIgnore
     private String password;
 
-    /** 0正常 1停用 */
+    /** 1正常 0停用，与认证状态和数据库默认值一致 */
     private Integer status;
 
     @TableLogic

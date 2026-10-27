@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.stereotype.Service;
 
 import java.util.Set;
@@ -34,13 +35,13 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         try {
             SysUser u = userService.selectUserByUserName(username);
             if (u == null) throw new UsernameNotFoundException("账号不存在: " + username);
-            if (u.getStatus() != null && u.getStatus() == 0) throw new UsernameNotFoundException("账号已停用,请联系管理员");
+            if (u.getStatus() != null && u.getStatus() == 0) throw new DisabledException("账号已停用,请联系管理员");
             Set<String> perms = roleService.selectPermsByUserId(u.getUserId());
             Set<String> roleKeys = roleService.selectRoleKeysByUserId(u.getUserId());
             Integer ds = roleService.resolveDataScope(u.getUserId());
             return new LoginUser(u.getUserId(), u.getDeptId(), u.getUserName(), u.getPassword(),
                     u.getNickName(), u.getStatus(), perms, roleKeys, ds);
-        } catch (UsernameNotFoundException e) {
+        } catch (UsernameNotFoundException | DisabledException e) {
             throw e;
         } catch (ServiceException e) {
             throw new UsernameNotFoundException(e.getMessage());
