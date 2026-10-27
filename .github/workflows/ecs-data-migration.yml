@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Back up, stage a verified snapshot, or activate the staged database
+        description: Back up or replace ERP data, inspect admin, or reset admin with a temporary BCrypt secret
         required: true
         type: choice
-        options: [backup, stage, activate]
+        options: [backup, stage, activate, inspect-admin, reset-admin]
         default: backup
 permissions:
   contents: read
@@ -32,10 +32,11 @@ jobs:
           ECS_PORT: ${{ vars.ECS_PORT || '22' }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/pcba-erp' }}
           ERP_REIMPORT: ${{ secrets.ERP_REIMPORT }}
+          ERP_ADMIN_PASSWORD_HASH: ${{ secrets.ERP_ADMIN_PASSWORD_HASH }}
           OPERATION: ${{ inputs.operation }}
         run: |
           set -Eeuo pipefail
-          [[ "$OPERATION" =~ ^(backup|stage|activate)$ ]]
+          [[ "$OPERATION" =~ ^(backup|stage|activate|inspect-admin|reset-admin)$ ]]
           [[ "$ECS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
           [[ "$ECS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
           [[ "$ECS_PORT" =~ ^[0-9]{1,5}$ && "$ECS_PORT" -gt 0 && "$ECS_PORT" -lt 65536 ]]
@@ -58,8 +59,12 @@ jobs:
           for file in ecs_reimport.py ecs_db.py; do
             ssh "${ssh_args[@]}" "$target" "cat > $remote/$file" < "scripts/$file"
           done
-          if [[ "$OPERATION" != backup ]]; then
+          if [[ "$OPERATION" == stage || "$OPERATION" == activate ]]; then
             [[ -n "$ERP_REIMPORT" ]]
             printf '%s' "$ERP_REIMPORT" | ssh "${ssh_args[@]}" "$target" "umask 077; cat > $remote/manifest.json"
+          fi
+          if [[ "$OPERATION" == reset-admin ]]; then
+            [[ -n "$ERP_ADMIN_PASSWORD_HASH" ]]
+            printf '%s' "$ERP_ADMIN_PASSWORD_HASH" | ssh "${ssh_args[@]}" "$target" "umask 077; cat > $remote/manifest.json"
           fi
           ssh "${ssh_args[@]}" "$target" "python3 -u $remote/ecs_reimport.py $DEPLOY_PATH $OPERATION $remote/manifest.json"

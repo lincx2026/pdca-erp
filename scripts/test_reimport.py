@@ -92,5 +92,25 @@ class ReplacementTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'already exists'):self.operation.stage(self.manifest)
         backup.assert_not_called()
 
+    def test_admin_reset_refuses_plaintext_before_any_database_access(self):
+        with patch.object(self.operation,'inspect_admin') as inspect:
+            with self.assertRaises(ValueError):self.operation.reset_admin('plaintext-test-only')
+        inspect.assert_not_called()
+
+    def test_admin_reset_is_scoped_and_hash_never_enters_command_arguments(self):
+        encoded='$2b$12$'+'a'*53
+        with patch.object(self.operation,'inspect_admin',return_value={'deleted':'0'}),\
+             patch.object(self.operation,'container',return_value='erp-redis'),\
+             patch.object(self.operation,'account_query',side_effect=['{"user_id":1}','1']) as query,\
+             patch.object(migration,'run',return_value='1') as execute:
+            self.operation.reset_admin(encoded)
+        sql=query.call_args_list[1].args[0]
+        self.assertIn("WHERE user_id=1 AND user_name='admin' AND del_flag=0",sql)
+        self.assertEqual('login_tokens:1',execute.call_args.args[0][-1])
+        with patch.object(migration,'run',return_value='') as execute:
+            self.operation.account_query(sql)
+        self.assertNotIn(encoded,str(execute.call_args.args))
+        self.assertIn(encoded,execute.call_args.kwargs['input'].decode())
+
 
 if __name__=='__main__':unittest.main()

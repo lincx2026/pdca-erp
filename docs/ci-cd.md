@@ -149,6 +149,10 @@ bash deploy.sh rollback
 
 所有数据库备份、替换状态及回滚库名保存在服务器 `.deploy-backups/`；旧库以 `pcba_erp_before_` 开头。此操作只支持本机共享模式的专用 `pcba_erp`，不会操作同机其它数据库或 Redis。旧服务器后续写入不会自动同步到新站。
 
+## admin 账号恢复
+
+`ECS verified data replacement` 的 `inspect-admin` 只输出账号状态、更新时间和密码格式，不输出密码或散列。`reset-admin` 从临时 production Secret `ERP_ADMIN_PASSWORD_HASH` 读取 BCrypt 散列，拒绝明文，先保存权限为 600 的账号备份，再更新唯一的 `user_id=1 / user_name=admin`、启用账号并删除该账号的 Redis 会话；不重置角色或业务数据。散列经 SSH 标准输入传输，SQL 经 psql 标准输入执行。实际登录验证通过后删除临时 Secret。
+
 若 CI 失败，在 Test reports 下载 JUnit XML；前端构建错误在 Frontend production build。
 SSH 失败核对账号、公钥、主机指纹和安全组；拉取镜像失败核对 GHCR 权限和 ECS 网络出口。
 健康检查失败在 ECS 使用 Compose logs 查看原因，日志输出不要包含 `.env` 或完整 Compose 展开配置。

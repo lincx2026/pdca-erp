@@ -82,6 +82,41 @@ class Replacement:
         print('Verified current ERP backup: '+name,flush=True)
         return result
 
+    def account_query(self,query):
+        # Password hashes and account backups must not enter process arguments/logs.
+        return run(['runuser','-u','postgres','--','psql','-X','-w','-qAt',
+                    '-v','ON_ERROR_STOP=1','-p',self.port,'-d',self.database,'-f','-'],
+                   input=(query+'\n').encode('utf-8'),
+                   env=dict(os.environ,PGOPTIONS='-c timezone=Asia/Shanghai'))
+
+    def inspect_admin(self):
+        record=self.account_query("SELECT json_build_object('userId',user_id,'userName',user_name,"
+            "'status',status,'deleted',del_flag,'updatedAt',update_time,"
+            "'passwordFormat',CASE WHEN password ~ '^\\$2[aby]\\$[0-9]{2}\\$[./A-Za-z0-9]{53}$' "
+            "THEN 'bcrypt' ELSE 'unsupported' END,'passwordLength',length(password)) "
+            "FROM public.sys_user WHERE user_id=1 AND user_name='admin'")
+        if not record:raise RuntimeError('Expected admin account not found')
+        print('Admin diagnostics: '+record,flush=True)
+        return json.loads(record)
+
+    def reset_admin(self,password_hash):
+        if not re.fullmatch(r'\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}',password_hash):
+            raise ValueError('A BCrypt hash is required; plaintext passwords are refused')
+        before=self.inspect_admin()
+        if str(before['deleted'])!='0':raise RuntimeError('Refusing to reset a deleted account')
+        redis=self.container('redis')
+        previous=json.loads(self.account_query("SELECT row_to_json(u) FROM public.sys_user u WHERE user_id=1 AND user_name='admin'"))
+        target=self.directory/('admin-before-reset-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+str(os.getpid())+'.json')
+        self.save(target,previous)
+        changed=self.account_query("UPDATE public.sys_user SET password='"+password_hash+"',status=1,"
+            "pwd_update_date=CURRENT_TIMESTAMP,update_by='admin-maintenance' "
+            "WHERE user_id=1 AND user_name='admin' AND del_flag=0 RETURNING user_id")
+        if changed!='1':raise RuntimeError('Admin password update did not affect exactly one account')
+        environment=dict(os.environ,REDISCLI_AUTH=self.config['REDIS_PASSWORD'])
+        removed=run(['docker','exec','-e','REDISCLI_AUTH',redis,'redis-cli','-n','0','DEL','login_tokens:1'],env=environment)
+        if removed not in ('0','1'):raise RuntimeError('Admin session invalidation failed')
+        print('Admin password reset with BCrypt; account enabled; admin sessions invalidated.',flush=True)
+
     def verify(self,database,manifest):
         for table,expected in manifest['fingerprints'].items():
             actual=self.admin(fingerprint_sql(table),database).splitlines()[-1]
@@ -223,10 +258,12 @@ def main():
     with (replacement.root/'.deploy.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         if operation=='backup':replacement.snapshot()
+        elif operation=='inspect-admin':replacement.inspect_admin()
+        elif operation=='reset-admin':replacement.reset_admin(Path(manifest_path).read_text().strip())
         elif operation in ('stage','activate'):
             manifest=json.loads(Path(manifest_path).read_text(encoding='utf-8-sig'))
             getattr(replacement,operation)(manifest)
-        else:raise ValueError('Use backup, stage or activate')
+        else:raise ValueError('Use backup, stage, activate, inspect-admin or reset-admin')
 
 
 if __name__=='__main__':
