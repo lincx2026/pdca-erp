@@ -206,7 +206,7 @@ async function onSubmit() {
   submitLoading.value = true
   try {
     // 收集菜单勾选
-    form.menuIds = menuTreeRef.value?.getCheckedKeys(true)
+    form.menuIds = menuTreeRef.value?.getCheckedKeys()
       .concat(menuTreeRef.value?.getHalfCheckedKeys ? menuTreeRef.value.getHalfCheckedKeys() : [])
     if (dialog.mode === 'add') { await roleApi.add(form); ElMessage.success('新增成功') }
     else { await roleApi.edit(form); ElMessage.success('修改成功') }
@@ -235,7 +235,7 @@ async function openAuth(row: SysRole) {
 }
 async function onAuthMenuSubmit() {
   if (!authDialog.roleId) return
-  const keys = authMenuTreeRef.value.getCheckedKeys(true).concat(authMenuTreeRef.value.getHalfCheckedKeys ? authMenuTreeRef.value.getHalfCheckedKeys() : [])
+  const keys = authMenuTreeRef.value.getCheckedKeys().concat(authMenuTreeRef.value.getHalfCheckedKeys ? authMenuTreeRef.value.getHalfCheckedKeys() : [])
   submitLoading.value = true
   try {
     await roleApi.authMenu({ roleId: authDialog.roleId, menuIds: keys })

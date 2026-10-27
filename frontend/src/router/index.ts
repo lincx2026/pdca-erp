@@ -122,37 +122,6 @@ NProgress.configure({ showSpinner: false })
 /** 全局标记：避免权限守卫重复并发触发 fetchUserInfo */
 let _fetchingUserInfo: Promise<any> | null = null
 
-/**
- * 判断 menus 是否是"可信的全量"数据。
- * 异常判定（任一满足则视为"旧缓存/未加载"，必须重新 fetch）：
- *  - null/空数组
- *  - 顶层菜单 < 3（正常 admin 至少含仪表盘/系统管理/系统监控 3 项）
- *  - 顶层项里看不到 menuId=185(仓储管理) 或 path=='wms'
- * 这是针对早期 persist 未 pick['token'] 时写入的脏 menus(长度=2) 做兜底。
- */
-function menusLooksStaleOrIncomplete(menus: any[] | undefined): boolean {
-  if (!menus || !menus.length) return true
-  if (menus.length < 3) return true
-  const norm = (p: any) => String(p || '').replace(/^\/+|\/+$/g, '').toLowerCase()
-  /** 递归扁平化菜单树, 支持菜单挂在 2/3 级的场景 (如 贴片管理 作为 产品管理 的子级) */
-  const flatten = (list: any[] | undefined): any[] => {
-    if (!list) return []
-    const out: any[] = []
-    for (const m of list) {
-      out.push(m)
-      if (Array.isArray(m.children) && m.children.length) out.push(...flatten(m.children))
-    }
-    return out
-  }
-  const flat = flatten(menus)
-  const hasWms = (m: any) => (m && (m.menuId === 185 || norm(m.path) === 'wms'))
-  const hasPm  = (m: any) => (m && (m.menuId === 250 || norm(m.path) === 'pm'))
-  const hasScm = (m: any) => (m && (m.menuId === 300 || norm(m.path) === 'scm'))
-  const hasSal = (m: any) => (m && (m.menuId === 500 || norm(m.path) === 'sal'))
-  const hasAsm = (m: any) => (m && (m.menuId === 700 || norm(m.path) === 'asm'))
-  return !flat.some(hasWms) || !flat.some(hasPm) || !flat.some(hasScm) || !flat.some(hasSal) || !flat.some(hasAsm)
-}
-
 router.beforeEach(async (to, _from, next) => {
   NProgress.start()
   document.title = (to.meta?.title ? to.meta.title + ' - ' : '') + (import.meta.env.VITE_APP_TITLE || '智健ERP系统')
@@ -164,10 +133,8 @@ router.beforeEach(async (to, _from, next) => {
     return next('/login' + (redirect ? '?redirect=' + redirect : ''))
   }
 
-  // 需要拉取用户信息的场景：
-  // 1) userInfo 缺失
-  // 2) menus 看起来不完整/是旧缓存 (即使 userInfo 非空也要强制回源一次)
-  const needFetch = !userStore.userInfo || menusLooksStaleOrIncomplete(userStore.menus as any[])
+  // userInfo 仅在内存中保存；菜单少或为空也可能是正常的权限配置。
+  const needFetch = !userStore.userInfo
   if (needFetch) {
     if (!_fetchingUserInfo) {
       _fetchingUserInfo = userStore.fetchUserInfo()
@@ -175,26 +142,21 @@ router.beforeEach(async (to, _from, next) => {
     }
     try {
       await _fetchingUserInfo
-      next()
     } catch (e) {
       userStore.reset()
-      next('/login')
+      return next('/login')
     }
-    return
   }
   // 菜单/按钮权限拦截: 路由级 perms 控制
   const perms: string[] | undefined = (to.meta as any).perms
   if (perms && perms.length) {
     const all = userStore.userInfo?.permissions || []
     const hasMatch = hasPerm(perms, all)
-    console.log('[router] perm check', { perms, all: Array.from(all as any), hasMatch })
     if (!hasMatch) {
-      console.log('[router] → PERM DENIED → /dashboard')
       useLayoutStore().flashForbidden = to.fullPath
       return next('/dashboard')
     }
   }
-  console.log('[router] → ALLOWED')
   next()
 })
 

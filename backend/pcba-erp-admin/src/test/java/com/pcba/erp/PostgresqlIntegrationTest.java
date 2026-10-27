@@ -42,9 +42,54 @@ class PostgresqlIntegrationTest {
     @Autowired IPmmFasStockService finishedStock;
     @Autowired JdbcTemplate jdbc;
     @Autowired SqlSessionFactory sessions;
+    @Autowired org.mybatis.spring.SqlSessionTemplate sql;
     @Autowired com.pcba.erp.system.mapper.SysRoleMapper roleMapper;
     @Autowired com.pcba.erp.system.controller.SysRoleController roleController;
     @Autowired com.pcba.erp.system.controller.SysUserController userController;
+    @Autowired com.pcba.erp.system.service.ISysRoleService roles;
+    @Autowired com.pcba.erp.system.service.ISysMenuService menus;
+    @Autowired com.pcba.erp.system.service.impl.UserDetailsServiceImpl userDetails;
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void activeAdminRoleProvidesAllMenusForNonRootUserWhileOrdinaryAndInactiveRolesStayRestricted() {
+        jdbc.execute("CREATE TEMP TABLE sys_role (LIKE public.sys_role INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_user (LIKE public.sys_user INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_user_role (LIKE public.sys_user_role INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_role_menu (LIKE public.sys_role_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_menu (LIKE public.sys_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.update("INSERT INTO sys_role(role_id,role_name,role_key,role_sort,data_scope,status,del_flag) VALUES "
+                + "(1,'Administrator','admin',1,4,1,0),(2,'Ordinary','common',2,2,1,0)");
+        jdbc.update("INSERT INTO sys_user(user_id,user_name,nick_name,password,status,del_flag) VALUES "
+                + "(1008,'role-admin-test','Admin','test-only',1,0),(42,'ordinary-test','Ordinary','test-only',1,0)");
+        jdbc.update("INSERT INTO sys_user_role(user_id,role_id) VALUES (1008,1),(42,2)");
+        jdbc.update("INSERT INTO sys_menu(menu_id,parent_id,menu_name,path,menu_type,status,visible,perms) VALUES "
+                + "(10,0,'System','system','M',0,0,NULL),(11,10,'Users','user','C',0,0,'system:user:list'),"
+                + "(12,11,'Edit','edit','F',0,0,'system:user:edit'),(20,0,'Other','other','M',0,0,NULL)");
+        // Reproduce leaf-only legacy bindings: admin role has no directory/page grant.
+        jdbc.update("INSERT INTO sys_role_menu(role_id,menu_id) VALUES (1,12),(2,10),(2,11)");
+        var login=(com.pcba.erp.common.security.LoginUser)userDetails.loadUserByUsername("role-admin-test");
+        assertTrue(login.getRoles().contains("admin"));
+        assertTrue(login.getPermissions().contains("*:*:*"));
+        assertEquals(1,login.getDataScope());
+        assertEquals(Set.of(10L,20L),menus.selectMenuTreeByUserId(1008L).stream().map(com.pcba.erp.system.entity.SysMenu::getMenuId).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of("*:*:*"),menus.selectMenuPermsByUserId(1008L));
+        assertEquals(Set.of("system:user:list"),roles.selectPermsByUserId(42L));
+        assertEquals(2,roles.resolveDataScope(42L));
+        assertEquals(List.of(10L),menus.selectMenuTreeByUserId(42L).stream().map(com.pcba.erp.system.entity.SysMenu::getMenuId).toList());
+        jdbc.update("INSERT INTO sys_role_menu(role_id,menu_id) VALUES (1,10),(1,11)");
+        jdbc.update("UPDATE sys_role SET status=0 WHERE role_id=1");
+        sql.clearCache(); // JDBC fixture updates bypass MyBatis's transaction-local cache.
+        assertFalse(roles.isSuperAdmin(1008L));
+        assertTrue(roles.selectPermsByUserId(1008L).isEmpty());
+        assertTrue(menus.selectMenuTreeByUserId(1008L).isEmpty());
+        jdbc.update("UPDATE sys_role SET status=1,del_flag=2 WHERE role_id=1");
+        sql.clearCache();
+        assertFalse(roles.isSuperAdmin(1008L));
+        assertTrue(roles.selectPermsByUserId(1008L).isEmpty());
+        assertTrue(menus.selectMenuTreeByUserId(1008L).isEmpty());
+        assertTrue(menus.selectMenuPermsByUserId(1008L).isEmpty());
+    }
 
     @Test
     @org.springframework.transaction.annotation.Transactional

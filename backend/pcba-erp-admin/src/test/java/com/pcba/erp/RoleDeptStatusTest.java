@@ -135,6 +135,20 @@ class RoleDeptStatusTest {
         } finally { TransactionSynchronizationManager.clearSynchronization(); }
     }
 
+    @Test
+    void menuAssignmentInvalidatesOnlyRelatedSessionsAfterCommit() {
+        SysUserRole binding=new SysUserRole();binding.setUserId(42L);binding.setRoleId(2L);
+        when(userRoleMapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(java.util.List.of(binding));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            roles.authMenu(2L,java.util.List.of(10L,11L));
+            verifyNoInteractions(redis);
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+            verify(redis).delete(java.util.List.of("login_tokens:42"));
+            verifyNoMoreInteractions(redis);
+        } finally { TransactionSynchronizationManager.clearSynchronization(); }
+    }
+
     private void parent(long id,int status) {
         SysDept parent=new SysDept();parent.setDeptId(id);parent.setStatus(status);parent.setAncestors("0");
         when(deptMapper.selectById(id)).thenReturn(parent);

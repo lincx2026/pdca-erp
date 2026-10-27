@@ -14,6 +14,9 @@ public interface ISysRoleService extends IService<SysRole> {
     /** 按用户ID查角色(含权限) */
     List<SysRole> selectRolesByUserId(Long userId);
 
+    /** 内置账号或持有正常、未删除的 admin 角色。 */
+    boolean isSuperAdmin(Long userId);
+
     /** 用户拥有的权限标识集合 (含 *:*:* 超管) */
     Set<String> selectPermsByUserId(Long userId);
 

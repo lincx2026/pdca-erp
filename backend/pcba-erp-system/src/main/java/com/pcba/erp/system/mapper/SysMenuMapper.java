@@ -17,13 +17,13 @@ public interface SysMenuMapper extends BaseMapper<SysMenu> {
             "ORDER BY m.parent_id, m.order_num")
     List<SysMenu> selectMenuTreeAll();
 
-    /** 普通用户按角色查菜单树（M、C）。注意 status=1=正常（与 SysRoleMapper.selectRolesByUserId 语义一致） */
+    /** 普通用户按有效角色查菜单树（角色 1=正常，菜单 0=正常）。 */
     @Select("SELECT m.* FROM sys_menu m " +
             "INNER JOIN sys_role_menu rm ON m.menu_id = rm.menu_id " +
             "INNER JOIN sys_user_role ur ON rm.role_id = ur.role_id " +
             "INNER JOIN sys_role r ON ur.role_id = r.role_id " +
             "WHERE ur.user_id = #{userId} AND m.visible = 0 AND m.status = 0 " +
-            "AND r.status = 1 AND m.menu_type IN ('M','C') " +
+            "AND r.status = 1 AND r.del_flag = '0' AND m.menu_type IN ('M','C') " +
             "GROUP BY m.menu_id " +
             "ORDER BY m.parent_id, m.order_num")
     List<SysMenu> selectMenuTreeByUserId(Long userId);
@@ -33,7 +33,7 @@ public interface SysMenuMapper extends BaseMapper<SysMenu> {
             "INNER JOIN sys_role_menu rm ON m.menu_id = rm.menu_id " +
             "INNER JOIN sys_user_role ur ON rm.role_id = ur.role_id " +
             "INNER JOIN sys_role r ON ur.role_id = r.role_id " +
-            "WHERE ur.user_id = #{userId} AND m.perms IS NOT NULL AND m.perms <> '' AND r.status = 1")
+            "WHERE ur.user_id = #{userId} AND m.perms IS NOT NULL AND m.perms <> '' AND r.status = 1 AND r.del_flag = '0'")
     List<String> selectMenuPermsByUserId(Long userId);
 
     @Select("SELECT menu_id FROM sys_role_menu WHERE role_id = #{roleId}")

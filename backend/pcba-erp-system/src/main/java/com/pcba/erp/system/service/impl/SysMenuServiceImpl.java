@@ -7,6 +7,7 @@ import com.pcba.erp.system.entity.SysRoleMenu;
 import com.pcba.erp.system.mapper.SysMenuMapper;
 import com.pcba.erp.system.mapper.SysRoleMenuMapper;
 import com.pcba.erp.system.service.ISysMenuService;
+import com.pcba.erp.system.service.ISysRoleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -19,10 +20,11 @@ import java.util.stream.Collectors;
 public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> implements ISysMenuService {
 
     private final SysRoleMenuMapper roleMenuMapper;
+    private final ISysRoleService roleService;
 
     @Override
     public List<SysMenu> selectMenuTreeByUserId(Long userId) {
-        List<SysMenu> flat = Long.valueOf(1L).equals(userId)
+        List<SysMenu> flat = roleService.isSuperAdmin(userId)
                 ? baseMapper.selectMenuTreeAll()
                 : baseMapper.selectMenuTreeByUserId(userId);
         return buildTree(flat);
@@ -88,7 +90,7 @@ public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> impl
 
     @Override
     public Set<String> selectMenuPermsByUserId(Long userId) {
-        if (Long.valueOf(1L).equals(userId)) return Collections.singleton("*:*:*");
+        if (roleService.isSuperAdmin(userId)) return Collections.singleton("*:*:*");
         List<String> p = baseMapper.selectMenuPermsByUserId(userId);
         return new HashSet<>(p == null ? Collections.emptyList() : p);
     }

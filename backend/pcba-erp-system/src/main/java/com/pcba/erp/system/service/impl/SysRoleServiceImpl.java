@@ -40,9 +40,13 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
     @Override public List<SysRole> selectRolesByUserId(Long userId) { return baseMapper.selectRolesByUserId(userId); }
 
     @Override
+    public boolean isSuperAdmin(Long userId) {
+        return Long.valueOf(1L).equals(userId) || selectRoleKeysByUserId(userId).contains("admin");
+    }
+
+    @Override
     public Set<String> selectPermsByUserId(Long userId) {
-        // 超管用户 ID=1
-        if (Long.valueOf(1L).equals(userId)) {
+        if (isSuperAdmin(userId)) {
             // 返回双份:
             //  '*'     → 兼容 RuoYi / 第三方组件 (前端 hasPerm 老写法: perms.includes('*') 即通配)
             //  '*:*:*' → 本项目 PermissionService 的超管通配符
@@ -64,7 +68,7 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
 
     @Override
     public Integer resolveDataScope(Long userId) {
-        if (Long.valueOf(1L).equals(userId)) return 1; // 超管=全部
+        if (isSuperAdmin(userId)) return 1; // 超管=全部
         List<SysRole> roles = selectRolesByUserId(userId);
         // 取最大范围: 1>3>2>4
         int best = 4;
@@ -111,7 +115,7 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
             throw new ServiceException("超级管理员角色不能停用");
         }
         if (!checkRoleKeyUnique(role)) throw new ServiceException("角色权限标识已存在");
-        SysRole previous = role.getStatus() == null ? null : baseMapper.selectById(rid);
+        SysRole previous = baseMapper.selectById(rid);
         baseMapper.updateById(role);
         // 重新分配菜单
         if (role.getMenuIds() != null) {
@@ -125,7 +129,9 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
                 roleDeptMapper.batchInsert(rid, role.getDeptIds());
             }
         }
-        if (previous != null && !Objects.equals(previous.getStatus(), role.getStatus())) {
+        if (role.getMenuIds() != null || role.getDataScope() != null || previous != null && (
+                role.getStatus() != null && !Objects.equals(previous.getStatus(), role.getStatus()) ||
+                role.getRoleKey() != null && !Objects.equals(previous.getRoleKey(), role.getRoleKey()))) {
             invalidateRoleSessions(rid);
         }
         return 1;
@@ -167,6 +173,7 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
         if (roleId == null) throw new ServiceException("角色ID为空");
         roleMenuMapper.deleteByRoleId(roleId);
         if (menuIds != null && !menuIds.isEmpty()) roleMenuMapper.batchInsert(roleId, menuIds);
+        invalidateRoleSessions(roleId);
         return 1;
     }
 

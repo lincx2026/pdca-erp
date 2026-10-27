@@ -73,6 +73,7 @@ jobs:
           VITE_API_BASE: /api
         run: |
           npm ci --no-audit --no-fund
+          node --test scripts/*.test.mjs
           npm run build
       - name: Test reports
         if: always()
