@@ -44,7 +44,7 @@ public class SysDept implements Serializable {
     @Size(max = 50, message = "邮箱不超过50字符")
     private String email;
 
-    /** 0=正常, 1=停用 */
+    /** 1=正常, 0=停用 */
     private Integer status;
 
     /** 删除标志 0=存在 2=删除 */

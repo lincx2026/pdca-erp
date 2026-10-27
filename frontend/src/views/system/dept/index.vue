@@ -7,8 +7,8 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="query.status" placeholder="全部" clearable style="width:140px">
-            <el-option label="正常" :value="0" />
-            <el-option label="停用" :value="1" />
+            <el-option label="正常" :value="1" />
+            <el-option label="停用" :value="0" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -25,7 +25,7 @@
         <el-table-column prop="orderNum" label="排序" width="80" align="center" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.status===0" type="success">正常</el-tag>
+            <el-tag v-if="row.status===1" type="success">正常</el-tag>
             <el-tag v-else type="danger">停用</el-tag>
           </template>
         </el-table-column>
@@ -35,7 +35,7 @@
         <el-table-column prop="createTime" label="创建时间" width="180" />
         <el-table-column label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" v-hasPermi="'system:dept:add'" @click="handleAdd(row)">新增下级</el-button>
+            <el-button link type="primary" v-hasPermi="'system:dept:add'" :disabled="row.status === 0" @click="handleAdd(row)">新增下级</el-button>
             <el-button link type="primary" v-hasPermi="'system:dept:edit'" @click="handleEdit(row)">修改</el-button>
             <el-popconfirm v-if="row.deptId !== 100" title="确定删除该部门?" @confirm="handleRemove(row)">
               <template #reference>
@@ -54,7 +54,7 @@
           <el-tree-select
             v-model="form.parentId"
             :data="parentOptions"
-            :props="{ label: 'deptName', value: 'deptId', children: 'children', disabled: false }"
+            :props="{ label: 'deptName', value: 'deptId', children: 'children', disabled: (node: SysDept) => node.status === 0 }"
             check-strictly
             :render-after-expand="false"
             placeholder="请选择上级部门(无则=集团根)"
@@ -76,8 +76,8 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
-            <el-radio :value="0">正常</el-radio>
-            <el-radio :value="1">停用</el-radio>
+            <el-radio :value="1">正常</el-radio>
+            <el-radio :value="0">停用</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -113,7 +113,7 @@ function resetQuery() { query.deptName = ''; query.status = undefined; reload() 
 const dialog = reactive<{ visible: boolean; isEdit: boolean }>({ visible: false, isEdit: false })
 const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
-const defaultForm = () => ({ deptId: undefined as number | undefined, parentId: 100 as any, deptName: '', orderNum: 0, leader: '', phone: '', email: '', status: 0 })
+const defaultForm = () => ({ deptId: undefined as number | undefined, parentId: 100 as any, deptName: '', orderNum: 0, leader: '', phone: '', email: '', status: 1 })
 const form = reactive<SysDept & any>(defaultForm())
 const rules: FormRules = {
   parentId: [{ required: true, message: '请选择上级部门', trigger: 'change' }],

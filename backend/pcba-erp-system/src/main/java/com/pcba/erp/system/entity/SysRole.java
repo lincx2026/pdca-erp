@@ -36,7 +36,7 @@ public class SysRole implements Serializable {
     private Integer menuCheckStrictly;
     private Integer deptCheckStrictly;
 
-    /** 0=正常 1=停用 */
+    /** 1=正常 0=停用 */
     private Integer status;
 
     @TableLogic

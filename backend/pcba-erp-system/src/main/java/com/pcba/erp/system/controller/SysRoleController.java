@@ -50,7 +50,7 @@ public class SysRoleController {
     @GetMapping("/optionselect")
     public R<List<SysRole>> optionSelect() {
         List<SysRole> roles = SecurityUtils.isAdmin()
-                ? roleService.lambdaQuery().eq(SysRole::getStatus, 0).orderByAsc(SysRole::getRoleSort).list()
+                ? roleService.lambdaQuery().eq(SysRole::getStatus, 1).orderByAsc(SysRole::getRoleSort).list()
                 : roleService.selectRolesByUserId(SecurityUtils.getUserId());
         // 去掉敏感字段
         roles.forEach(r -> r.setPermissions(null));
@@ -71,7 +71,7 @@ public class SysRoleController {
         return R.ok(Map.of(
                 "data", r == null ? new SysRole() : r,
                 "menus", menuService.buildTree(menuService.selectMenuList(null, 0)),
-                "depts", deptService.selectDeptList(null, 0)
+                "depts", deptService.selectDeptList(null, 1)
         ));
     }
 
@@ -118,6 +118,6 @@ public class SysRoleController {
     @GetMapping("/dept-tree/{roleId}")
     public R<List<SysDept>> deptTreeByRole(@PathVariable Long roleId) {
         // 简单返回部门树; 真正"已勾选项"由前端再调 /{id} 接口读取 deptCheckStrictly 等
-        return R.ok(deptService.selectDeptList(null, 0));
+        return R.ok(deptService.selectDeptList(null, 1));
     }
 }

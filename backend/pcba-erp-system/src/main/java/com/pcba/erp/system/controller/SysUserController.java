@@ -121,7 +121,7 @@ public class SysUserController {
     @GetMapping("/optionselect")
     public R<List<Map<String, Object>>> optionSelect() {
         List<SysRole> roles = SecurityUtils.isAdmin()
-                ? roleService.lambdaQuery().eq(SysRole::getStatus, 0).orderByAsc(SysRole::getRoleSort).list()
+                ? roleService.lambdaQuery().eq(SysRole::getStatus, 1).orderByAsc(SysRole::getRoleSort).list()
                 : roleService.selectRolesByUserId(SecurityUtils.getUserId());
         List<Map<String, Object>> list = roles.stream()
                 .map(r -> Map.<String, Object>of(

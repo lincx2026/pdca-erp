@@ -39,6 +39,8 @@ public interface SysRoleMapper extends BaseMapper<SysRole> {
     @Select("SELECT DISTINCT p.perms FROM sys_menu p " +
             "INNER JOIN sys_role_menu rm ON p.menu_id = rm.menu_id " +
             "INNER JOIN sys_user_role ur ON rm.role_id = ur.role_id " +
-            "WHERE ur.user_id = #{userId} AND p.perms IS NOT NULL AND p.perms <> ''")
+            "INNER JOIN sys_role r ON r.role_id = ur.role_id " +
+            "WHERE ur.user_id = #{userId} AND r.status = 1 AND r.del_flag = '0' " +
+            "AND p.perms IS NOT NULL AND p.perms <> ''")
     List<String> selectPermsByUserId(Long userId);
 }

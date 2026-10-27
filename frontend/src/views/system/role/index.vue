@@ -6,7 +6,7 @@
         <el-form-item label="标识"><el-input v-model="query.roleKey" clearable placeholder="role key 模糊" /></el-form-item>
         <el-form-item label="状态">
           <el-select v-model="query.status" clearable placeholder="全部" style="width:120px">
-            <el-option label="正常" :value="0" /><el-option label="停用" :value="1" />
+            <el-option label="正常" :value="1" /><el-option label="停用" :value="0" />
           </el-select>
         </el-form-item>
         <el-form-item label="创建时间">
@@ -33,7 +33,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{row}">
-            <el-tag v-if="row.status===0" type="success" size="small">正常</el-tag>
+            <el-tag v-if="row.status===1" type="success" size="small">正常</el-tag>
             <el-tag v-else type="danger" size="small">停用</el-tag>
           </template>
         </el-table-column>
@@ -70,7 +70,7 @@
               <el-col :md="12"><el-form-item label="标识" prop="roleKey"><el-input v-model="form.roleKey" maxlength="100" style="width:100%" /></el-form-item></el-col>
               <el-col :md="12"><el-form-item label="排序" prop="roleSort"><el-input-number v-model="form.roleSort" :min="0" :max="999" controls-position="right" /></el-form-item></el-col>
               <el-col :md="12"><el-form-item label="状态">
-                <el-radio-group v-model="form.status"><el-radio :value="0">正常</el-radio><el-radio :value="1">停用</el-radio></el-radio-group>
+                <el-radio-group v-model="form.status"><el-radio :value="1">正常</el-radio><el-radio :value="0" :disabled="form.roleId === 1">停用</el-radio></el-radio-group>
               </el-form-item></el-col>
               <el-col :md="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
             </el-row>
@@ -176,7 +176,7 @@ const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
 const menuTreeRef = ref<any>()
 const form = reactive<any>({
-  roleId: undefined, roleName: '', roleKey: '', roleSort: 0, status: 0, dataScope: 3,
+  roleId: undefined, roleName: '', roleKey: '', roleSort: 0, status: 1, dataScope: 3,
   remark: '', menuIds: [], deptIds: [], menuCheckStrictly: 0, deptCheckStrictly: 0
 })
 const rules: FormRules = {
@@ -184,7 +184,7 @@ const rules: FormRules = {
   roleKey: [{ required: true, message: '请输入角色权限标识', trigger: 'blur' }, { min: 2, max: 100 }],
   roleSort: [{ required: true, message: '请输入排序', trigger: 'blur' }]
 }
-function resetForm() { Object.assign(form, { roleId: undefined, roleName: '', roleKey: '', roleSort: 0, status: 0, dataScope: 3, remark: '', menuIds: [], deptIds: [], menuCheckStrictly: 0, deptCheckStrictly: 0 }) }
+function resetForm() { Object.assign(form, { roleId: undefined, roleName: '', roleKey: '', roleSort: 0, status: 1, dataScope: 3, remark: '', menuIds: [], deptIds: [], menuCheckStrictly: 0, deptCheckStrictly: 0 }) }
 async function openDialog(mode: 'add' | 'edit', row?: SysRole) {
   resetForm()
   dialog.mode = mode

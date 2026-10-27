@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.pcba.erp.common.exception.ServiceException;
+import com.pcba.erp.common.security.JwtAuthenticationTokenFilter;
 import com.pcba.erp.system.entity.SysRole;
 import com.pcba.erp.system.entity.SysUser;
 import com.pcba.erp.system.mapper.SysRoleDeptMapper;
@@ -13,7 +14,10 @@ import com.pcba.erp.system.mapper.SysUserRoleMapper;
 import com.pcba.erp.system.service.ISysRoleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -25,6 +29,7 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
     private final SysRoleMenuMapper roleMenuMapper;
     private final SysRoleDeptMapper roleDeptMapper;
     private final SysUserRoleMapper userRoleMapper;
+    private final StringRedisTemplate redisTemplate;
 
     @Override
     public IPage<SysRole> selectRolePage(int pageNum, int pageSize, String roleName, String roleKey,
@@ -85,7 +90,7 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
     public int insertRole(SysRole role) {
         if (!checkRoleKeyUnique(role)) throw new ServiceException("角色权限标识已存在:" + role.getRoleKey());
         if (role.getDelFlag() == null) role.setDelFlag("0");
-        if (role.getStatus() == null) role.setStatus(0);
+        if (role.getStatus() == null) role.setStatus(1);
         baseMapper.insert(role);
         Long rid = role.getRoleId();
         if (role.getMenuIds() != null && !role.getMenuIds().isEmpty()) {
@@ -102,10 +107,11 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
     public int updateRole(SysRole role) {
         Long rid = role.getRoleId();
         if (rid == null) throw new ServiceException("角色ID为空");
-        if (Long.valueOf(1L).equals(rid) && Integer.valueOf(1).equals(role.getStatus())) {
+        if (Long.valueOf(1L).equals(rid) && Integer.valueOf(0).equals(role.getStatus())) {
             throw new ServiceException("超级管理员角色不能停用");
         }
         if (!checkRoleKeyUnique(role)) throw new ServiceException("角色权限标识已存在");
+        SysRole previous = role.getStatus() == null ? null : baseMapper.selectById(rid);
         baseMapper.updateById(role);
         // 重新分配菜单
         if (role.getMenuIds() != null) {
@@ -119,7 +125,25 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
                 roleDeptMapper.batchInsert(rid, role.getDeptIds());
             }
         }
+        if (previous != null && !Objects.equals(previous.getStatus(), role.getStatus())) {
+            invalidateRoleSessions(rid);
+        }
         return 1;
+    }
+
+    private void invalidateRoleSessions(Long roleId) {
+        var users = userRoleMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.pcba.erp.system.entity.SysUserRole>()
+                .eq(com.pcba.erp.system.entity.SysUserRole::getRoleId, roleId));
+        List<String> keys = users.stream().map(u -> JwtAuthenticationTokenFilter.LOGIN_TOKEN_PREFIX + u.getUserId()).distinct().toList();
+        if (keys.isEmpty()) return;
+        // 等数据库提交后再失效，避免回滚时登出用户；只清理该角色关联的会话。
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { redisTemplate.delete(keys); }
+            });
+        } else {
+            redisTemplate.delete(keys);
+        }
     }
 
     @Override @Transactional(rollbackFor = Exception.class)

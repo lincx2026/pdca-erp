@@ -42,6 +42,74 @@ class PostgresqlIntegrationTest {
     @Autowired IPmmFasStockService finishedStock;
     @Autowired JdbcTemplate jdbc;
     @Autowired SqlSessionFactory sessions;
+    @Autowired com.pcba.erp.system.mapper.SysRoleMapper roleMapper;
+    @Autowired com.pcba.erp.system.controller.SysRoleController roleController;
+    @Autowired com.pcba.erp.system.controller.SysUserController userController;
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void disabledOrDeletedRolesGrantNeitherRoleKeysNorPermissions() {
+        jdbc.execute("CREATE TEMP TABLE sys_role (LIKE public.sys_role INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_user (LIKE public.sys_user INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_user_role (LIKE public.sys_user_role INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_role_menu (LIKE public.sys_role_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_menu (LIKE public.sys_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.update("INSERT INTO sys_user(user_id,user_name,nick_name,password,status,del_flag) VALUES (42,'role-status-test','Test','test-only',1,0)");
+        jdbc.update("INSERT INTO sys_role(role_id,role_name,role_key,role_sort,status,del_flag) VALUES "
+                + "(10,'Enabled','enabled',1,1,0),(11,'Disabled','disabled',2,0,0),(12,'Deleted','deleted',3,1,2)");
+        jdbc.update("INSERT INTO sys_user_role(user_id,role_id) VALUES (42,10),(42,11),(42,12)");
+        jdbc.update("INSERT INTO sys_menu(menu_id,menu_name,perms) VALUES (10,'Enabled','test:enabled'),(11,'Disabled','test:disabled'),(12,'Deleted','test:deleted')");
+        jdbc.update("INSERT INTO sys_role_menu(role_id,menu_id) VALUES (10,10),(11,11),(12,12)");
+        assertEquals(List.of("test:enabled"),roleMapper.selectPermsByUserId(42L));
+        assertEquals(List.of("enabled"),roleMapper.selectRolesByUserId(42L).stream().map(com.pcba.erp.system.entity.SysRole::getRoleKey).toList());
+        var admin=new com.pcba.erp.common.security.LoginUser(1L,100L,"test-admin","","Test",1,Set.of("*:*:*"),Set.of("admin"),1);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin,null,List.of()));
+        try {
+            assertEquals(List.of(10L),roleController.optionSelect().getData().stream().map(com.pcba.erp.system.entity.SysRole::getRoleId).toList());
+            assertEquals(List.of(10L),userController.optionSelect().getData().stream().map(r -> r.get("roleId")).toList());
+        } finally { org.springframework.security.core.context.SecurityContextHolder.clearContext(); }
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void legacyStatusConversionPreservesEnabledAndDisabledMeaningAndRoleBindings() throws Exception {
+        statusMigrationTables();
+        jdbc.execute("CREATE TEMP TABLE sys_user_role (LIKE public.sys_user_role INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_role_menu (LIKE public.sys_role_menu INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_role_dept (LIKE public.sys_role_dept INCLUDING ALL) ON COMMIT DROP");
+        jdbc.update("INSERT INTO flyway_schema_history(installed_rank,version,description,type,script,installed_by,execution_time,success) "
+                + "VALUES (1,'7','Verified MySQL import','BASELINE','Verified MySQL import','test',0,true)");
+        jdbc.update("INSERT INTO sys_role(role_id,role_name,role_key,role_sort,status,del_flag) VALUES (10,'Enabled','enabled',1,0,0),(11,'Disabled','disabled',2,1,0)");
+        jdbc.update("INSERT INTO sys_dept(dept_id,parent_id,dept_name,status,del_flag) VALUES (100,0,'Enabled',0,0),(101,100,'Disabled',1,0)");
+        jdbc.update("INSERT INTO sys_user_role VALUES (42,10)");
+        jdbc.update("INSERT INTO sys_role_menu VALUES (10,123)");
+        jdbc.update("INSERT INTO sys_role_dept VALUES (10,100)");
+        runMigration("V8__normalize_legacy_role_department_status.sql");
+        assertEquals(List.of(1,0),jdbc.queryForList("SELECT status FROM sys_role ORDER BY role_id",Integer.class));
+        assertEquals(List.of(1,0),jdbc.queryForList("SELECT status FROM sys_dept ORDER BY dept_id",Integer.class));
+        assertEquals(10L,jdbc.queryForObject("SELECT role_id FROM sys_user_role WHERE user_id=42",Long.class));
+        assertEquals(123L,jdbc.queryForObject("SELECT menu_id FROM sys_role_menu WHERE role_id=10",Long.class));
+        assertEquals(100L,jdbc.queryForObject("SELECT dept_id FROM sys_role_dept WHERE role_id=10",Long.class));
+        assertEquals("1",jdbc.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_schema LIKE 'pg_temp_%' AND table_name='sys_role' AND column_name='status'",String.class));
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void freshInstallationKeepsCurrentStatusMeaning() throws Exception {
+        statusMigrationTables();
+        jdbc.update("INSERT INTO sys_role(role_id,role_name,role_key,role_sort,status,del_flag) VALUES (10,'Enabled','enabled',1,1,0),(11,'Disabled','disabled',2,0,0)");
+        jdbc.update("INSERT INTO sys_dept(dept_id,parent_id,dept_name,status,del_flag) VALUES (100,0,'Enabled',1,0),(101,100,'Disabled',0,0)");
+        runMigration("V8__normalize_legacy_role_department_status.sql");
+        assertEquals(List.of(1,0),jdbc.queryForList("SELECT status FROM sys_role ORDER BY role_id",Integer.class));
+        assertEquals(List.of(1,0),jdbc.queryForList("SELECT status FROM sys_dept ORDER BY dept_id",Integer.class));
+    }
+
+    private void statusMigrationTables() {
+        jdbc.execute("CREATE TEMP TABLE sys_role (LIKE public.sys_role INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE sys_dept (LIKE public.sys_dept INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE flyway_schema_history (LIKE public.flyway_schema_history INCLUDING ALL) ON COMMIT DROP");
+    }
 
     @Test
     @org.springframework.transaction.annotation.Transactional

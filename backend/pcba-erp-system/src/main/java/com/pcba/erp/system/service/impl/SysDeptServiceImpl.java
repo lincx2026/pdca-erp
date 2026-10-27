@@ -62,10 +62,11 @@ public class SysDeptServiceImpl extends ServiceImpl<SysDeptMapper, SysDept> impl
         else {
             SysDept parent = getById(pid);
             if (parent == null) throw new ServiceException("父部门不存在");
-            if (parent.getStatus() != null && parent.getStatus() == 1) throw new ServiceException("父部门停用, 不能新增子部门");
+            if (Integer.valueOf(0).equals(parent.getStatus())) throw new ServiceException("父部门停用, 不能新增子部门");
             dept.setAncestors(parent.getAncestors() + "," + pid);
         }
         if (!StringUtils.hasText(dept.getDelFlag())) dept.setDelFlag("0");
+        if (dept.getStatus() == null) dept.setStatus(1);
         return super.save(dept);
     }
 
@@ -77,6 +78,8 @@ public class SysDeptServiceImpl extends ServiceImpl<SysDeptMapper, SysDept> impl
         // 若 parentId 变更 → 重算 ancestors + 递归子部门
         if (!pid.equals(oldParentId)) {
             SysDept parent = pid == 0L ? null : getById(pid);
+            if (pid != 0L && parent == null) throw new ServiceException("父部门不存在");
+            if (parent != null && Integer.valueOf(0).equals(parent.getStatus())) throw new ServiceException("父部门停用, 不能迁入子部门");
             String newAnc = (pid == 0L) ? "0" : parent.getAncestors() + "," + pid;
             String oldAnc = dept.getAncestors();
             dept.setAncestors(newAnc);
@@ -94,7 +97,8 @@ public class SysDeptServiceImpl extends ServiceImpl<SysDeptMapper, SysDept> impl
 
     private List<SysDept> buildTree(List<SysDept> list) {
         Map<Long, List<SysDept>> group = list.stream().collect(Collectors.groupingBy(d -> d.getParentId() == null ? 0L : d.getParentId()));
-        List<SysDept> roots = group.getOrDefault(0L, new ArrayList<>());
+        var ids = list.stream().map(SysDept::getDeptId).collect(Collectors.toSet());
+        List<SysDept> roots = list.stream().filter(d -> !ids.contains(d.getParentId())).collect(Collectors.toCollection(ArrayList::new));
         for (SysDept r : list) r.setChildren(group.getOrDefault(r.getDeptId(), null));
         return roots;
     }
