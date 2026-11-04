@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -24,6 +25,7 @@ public class PmmWorkOrderServiceImpl implements IPmmWorkOrderService {
 
     private final PmmWorkOrderMapper mapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     public IPage<PmmWorkOrder> selectPage(int pageNum, int pageSize, String orderNo, String materialCode, String materialName,
@@ -42,6 +44,13 @@ public class PmmWorkOrderServiceImpl implements IPmmWorkOrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long save(PmmWorkOrder entity) {
+        entity.setWorkOrderId(null); entity.setStatus(0);
+        if (entity.getOrderQty() == null || entity.getOrderQty().signum() <= 0) throw new ServiceException("生产数量必须大于零");
+        resolveReferences(entity);
+        if (entity.getOrderNo() == null || entity.getOrderNo().isBlank()) {
+            Long n = jdbcTemplate.queryForObject("SELECT nextval('pmm_work_order_number_seq')", Long.class);
+            entity.setOrderNo("WO-" + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd")) + "-" + n);
+        }
         if (entity.getOrderNo() != null) {
             if (mapper.countDuplicate(entity.getOrderNo(), null) > 0)
                 throw new ServiceException("工单号【" + entity.getOrderNo() + "】已存在");
@@ -70,11 +79,33 @@ public class PmmWorkOrderServiceImpl implements IPmmWorkOrderService {
         if (entity.getWorkOrderId() == null) throw new ServiceException("工单ID不能为空");
         PmmWorkOrder old = mapper.selectById(entity.getWorkOrderId());
         if (old == null) throw new ServiceException("工单不存在");
+        if (entity.getOrderQty() != null && entity.getOrderQty().signum() <= 0) throw new ServiceException("生产数量必须大于零");
+        resolveReferences(entity);
+        if (entity.getOrderNo() != null && entity.getOrderNo().isBlank()) throw new ServiceException("工单号不能为空");
         if (entity.getOrderNo() != null) {
             if (mapper.countDuplicate(entity.getOrderNo(), entity.getWorkOrderId()) > 0)
                 throw new ServiceException("工单号已存在");
         }
         return mapper.updateById(entity) > 0;
+    }
+
+    private void resolveReferences(PmmWorkOrder entity) {
+        if (entity.getSaleOrderId() != null) {
+            if (entity.getSaleOrderLineId() == null) throw new ServiceException("请选择销售订单明细");
+            var rows = jdbcTemplate.queryForList("SELECT s.so_no, s.customer_id, s.customer_name, s.customer_order_no, l.material_id FROM sal_sales_order s JOIN sal_sales_order_line l ON l.so_id=s.so_id WHERE s.so_id=? AND l.line_id=?", entity.getSaleOrderId(), entity.getSaleOrderLineId());
+            if (rows.isEmpty()) throw new ServiceException("销售订单明细不存在或不属于该订单");
+            var row = rows.get(0);
+            if (!java.util.Objects.equals(((Number) row.get("material_id")).longValue(), entity.getMaterialId())) throw new ServiceException("工单物料必须与销售订单明细一致");
+            entity.setSaleOrderNo((String) row.get("so_no"));
+            entity.setCustomerId(row.get("customer_id") == null ? null : ((Number) row.get("customer_id")).longValue());
+            entity.setCustomerName((String) row.get("customer_name"));
+            entity.setCustomerOrderNo((String) row.get("customer_order_no"));
+        } else if (entity.getSaleOrderLineId() != null) throw new ServiceException("请先选择销售订单");
+        if (entity.getFactoryId() != null) {
+            var factories = jdbcTemplate.queryForList("SELECT factory_name FROM company_factory WHERE factory_id=? AND node_type='FACTORY' AND status=0", String.class, entity.getFactoryId());
+            if (factories.isEmpty()) throw new ServiceException("加工厂不存在或已停用");
+            entity.setFactoryName(factories.get(0));
+        }
     }
 
     @Override

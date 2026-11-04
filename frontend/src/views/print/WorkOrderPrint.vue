@@ -57,6 +57,10 @@
             <td class="label">销售订单</td><td>{{ order?.saleOrderNo || '—' }}</td>
             <td class="label">客户</td><td>{{ order?.customerName || '—' }}</td>
           </tr>
+          <tr>
+            <td class="label">客户订单号</td><td>{{ order?.customerOrderNo || '—' }}</td>
+            <td class="label">加工厂</td><td>{{ order?.factoryName || '—' }}</td>
+          </tr>
         </table>
         <!-- BOM 清单(空白行供现场手写) -->
         <div class="section-title">一、BOM清单(投料记录)</div>
@@ -155,7 +159,7 @@ const printRef = ref<HTMLElement>()
 const todayStr = new Date().toLocaleDateString('zh-CN')
 
 const watermarkText = computed(() => {
-  const m: Record<number, string> = { 0: '草稿', 1: '已下达', 2: '进行中', 3: '已完工', 4: '已入库' }
+  const m: Record<number, string> = { 0: '草稿', 10: '已下发', 20: '生产中', 30: '暂停', 40: '完工', 50: '关闭', 90: '取消' }
   return m[Number(props.order?.status)] || '—'
 })
 

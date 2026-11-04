@@ -23,7 +23,6 @@ public class PmmWorkOrder implements Serializable {
     @TableId(type = IdType.AUTO)
     private Long workOrderId;
 
-    @NotBlank(message = "工单号不能为空")
     @Size(max = 50)
     private String orderNo;
 
@@ -74,6 +73,11 @@ public class PmmWorkOrder implements Serializable {
 
     @Size(max = 50)
     private String saleOrderNo;
+    private Long saleOrderId;
+    private Long saleOrderLineId;
+    @Size(max = 100) private String customerOrderNo;
+    private Long factoryId;
+    @Size(max = 200) private String factoryName;
 
     /** 0=草稿 10=已下发 20=生产中 30=暂停 40=完工 50=关闭 90=取消 */
     private Integer status;

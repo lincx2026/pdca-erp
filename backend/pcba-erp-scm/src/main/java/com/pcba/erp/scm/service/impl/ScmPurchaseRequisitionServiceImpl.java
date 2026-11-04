@@ -69,14 +69,17 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long save(ScmPurchaseRequisition entity) {
+        entity.setStatus(0);
+        entity.setAuditBy(null); entity.setAuditTime(null); entity.setRejectReason(null);
         // 单号生成 (后端兜底)
         try {
             Field f = ScmPurchaseRequisition.class.getDeclaredField("requisitionNo");
             f.setAccessible(true);
             Object v = f.get(entity);
             if (v == null || v.toString().isBlank()) {
-                String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-                f.set(entity, "PR" + ts);
+                String ts = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+                Long n = jdbcTemplate.queryForObject("SELECT nextval('scm_requisition_number_seq')", Long.class);
+                f.set(entity, "PR" + ts + "-" + n);
             }
         } catch (Exception ignore) {}
         // 申请日期
@@ -147,6 +150,8 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
         if (id == null) throw new ServiceException("ID不能为空");
         ScmPurchaseRequisition old = mapper.selectById(id);
         if (old == null) throw new ServiceException("记录不存在");
+        if (!Integer.valueOf(0).equals(old.getStatus()) && !Integer.valueOf(4).equals(old.getStatus())) throw new ServiceException("仅草稿或已驳回的请购单可以修改");
+        entity.setStatus(null);
         // 单号查重
         try {
             Field noField = ScmPurchaseRequisition.class.getDeclaredField("requisitionNo");
@@ -165,6 +170,8 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
     public boolean remove(Long id) {
         ScmPurchaseRequisition r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
+        if (!Integer.valueOf(0).equals(r.getStatus()) && !Integer.valueOf(4).equals(r.getStatus())) throw new ServiceException("仅草稿或已驳回的请购单可以删除");
+        lineMapper.delete(new LambdaQueryWrapper<ScmPurchaseRequisitionLine>().eq(ScmPurchaseRequisitionLine::getRequisitionId, id));
         return mapper.deleteById(id) > 0;
     }
 
@@ -175,12 +182,55 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
         if (status == null) throw new ServiceException("状态值非法");
         ScmPurchaseRequisition r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
-        try {
-            Field s = ScmPurchaseRequisition.class.getDeclaredField("status");
-            s.setAccessible(true);
-            s.set(r, status);
-        } catch (Exception ignore) { throw new ServiceException("状态字段缺失"); }
-        return mapper.updateById(r) > 0;
+        int current = r.getStatus() == null ? 0 : r.getStatus();
+        boolean allowed = (status == 1 && (current == 0 || current == 4)) ||
+                ((status == 2 || status == 4) && current == 1) ||
+                (status == 9 && (current == 0 || current == 1 || current == 4));
+        if (!allowed) throw new ServiceException("当前请购单状态不允许该操作");
+        if (status == 1 && lineMapper.selectCount(new LambdaQueryWrapper<ScmPurchaseRequisitionLine>()
+                .eq(ScmPurchaseRequisitionLine::getRequisitionId, id)) == 0)
+            throw new ServiceException("请先添加请购明细");
+        int updated = mapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ScmPurchaseRequisition>()
+                .eq(ScmPurchaseRequisition::getRequisitionId, id).eq(ScmPurchaseRequisition::getStatus, current)
+                .set(ScmPurchaseRequisition::getStatus, status));
+        if (updated != 1) throw new ServiceException("单据状态已变化，请刷新后重试");
+        if (status == 1 || status == 2 || status == 4) {
+            lineMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ScmPurchaseRequisitionLine>()
+                    .eq(ScmPurchaseRequisitionLine::getRequisitionId, id)
+                    .set(ScmPurchaseRequisitionLine::getStatus, status == 4 ? 0 : status));
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long copy(Long id) {
+        ScmPurchaseRequisition source = getDetail(id);
+        List<ScmPurchaseRequisitionLine> lines = lineMapper.selectList(new LambdaQueryWrapper<ScmPurchaseRequisitionLine>()
+                .eq(ScmPurchaseRequisitionLine::getRequisitionId, id));
+        source.setRequisitionId(null); source.setRequisitionNo(null); source.setStatus(0);
+        source.setAuditBy(null); source.setAuditTime(null); source.setRejectReason(null);
+        source.setCreateBy(null); source.setCreateTime(null); source.setUpdateBy(null); source.setUpdateTime(null);
+        source.setRequisitionDate(LocalDate.now());
+        Long newId = save(source);
+        for (ScmPurchaseRequisitionLine line : lines) {
+            line.setLineId(null); line.setRequisitionId(newId); line.setStatus(0);
+            line.setConvertedPoId(null); line.setConvertedPoLineId(null); line.setConvertedQty(BigDecimal.ZERO);
+            line.setSupplierPriceId(null); line.setErrorMsg(null);
+            line.setCreateBy(null); line.setCreateTime(null); line.setUpdateBy(null); line.setUpdateTime(null);
+            lineMapper.insert(line);
+        }
+        return newId;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean reject(Long id, String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 500) throw new ServiceException("驳回原因不能为空且不能超过500字");
+        changeStatus(id, 4);
+        mapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ScmPurchaseRequisition>()
+                .eq(ScmPurchaseRequisition::getRequisitionId, id).set(ScmPurchaseRequisition::getRejectReason, reason));
+        return true;
     }
 
     @Override
@@ -410,6 +460,12 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
         List<Long> poIds = new ArrayList<>();
         int mergedCount = 0;
 
+        // Serialize conversions of the same lines before checking remaining quantity.
+        List<Long> uniqueLineIds = lineIds.stream().distinct().sorted().toList();
+        String placeholders = String.join(",", Collections.nCopies(uniqueLineIds.size(), "?"));
+        jdbcTemplate.queryForList("SELECT requisition_id FROM scm_purchase_requisition WHERE requisition_id IN (SELECT requisition_id FROM scm_purchase_requisition_line WHERE line_id IN (" + placeholders + ")) ORDER BY requisition_id FOR UPDATE", Long.class, uniqueLineIds.toArray());
+        jdbcTemplate.queryForList("SELECT line_id FROM scm_purchase_requisition_line WHERE line_id IN (" + placeholders + ") ORDER BY line_id FOR UPDATE", Long.class, uniqueLineIds.toArray());
+        lineIds = uniqueLineIds;
         // 取所有行
         List<ScmPurchaseRequisitionLine> allLines = lineMapper.selectBatchIds(lineIds);
         if (allLines.size() != lineIds.size()) {
@@ -430,7 +486,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             if (req == null) {
                 throw new ServiceException("请购单不存在: requisitionId=" + line.getRequisitionId());
             }
-            if (req.getStatus() == null || req.getStatus() < 2) {
+            if (!Integer.valueOf(2).equals(req.getStatus())) {
                 throw new ServiceException("请购单未审核 status=" + req.getStatus() + ", 请先审核后再转采购 requisitionId=" + req.getRequisitionId());
             }
             if (line.getStatus() == null || line.getStatus() != 2) {
@@ -456,9 +512,8 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             String supplierName = defaultSupplier == null ? null : (String) defaultSupplier.get("supplierName");
 
             if (supplierId == null) {
-                line.setStatus(7);
                 line.setErrorMsg("无默认供方，先维护默认供");
-                requisitionLineService.update(line);
+                lineMapper.updateById(line);
                 missingLineIds.add(lineId);
                 warnings.add("物料 " + (line.getMaterialCode() == null ? materialId : line.getMaterialCode()) + " 无默认供方");
                 log.warn("[convertToPurchaseOrder] 行 {} 无默认供方 物料={}", lineId, materialId);
@@ -468,8 +523,10 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
                     lineId, materialId, supplierId, supplierName);
 
             // 阶梯价匹配
-            BigDecimal qty = qtyOverrides.getOrDefault(lineId,
-                    line.getQty() == null ? BigDecimal.ZERO : line.getQty());
+            BigDecimal alreadyConverted = line.getConvertedQty() == null ? BigDecimal.ZERO : line.getConvertedQty();
+            BigDecimal remaining = (line.getQty() == null ? BigDecimal.ZERO : line.getQty()).subtract(alreadyConverted);
+            BigDecimal qty = qtyOverrides.getOrDefault(lineId, remaining);
+            if (qty.signum() <= 0 || qty.compareTo(remaining) > 0) throw new ServiceException("请购行 " + lineId + " 转单数量超过未转数量");
 
             ScmSupplierPrice matchedPrice = matchSupplierPrice(supplierId, materialId, qty);
             BigDecimal unitPrice;
@@ -586,18 +643,20 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             if (ref == null) continue; // 无供方已处理 missingLineIds
             line.setConvertedPoId(ref.poId);
             line.setConvertedPoLineId(ref.poLineId);
-            line.setConvertedQty(ref.qty);
+            BigDecimal converted = (line.getConvertedQty() == null ? BigDecimal.ZERO : line.getConvertedQty()).add(ref.qty);
+            line.setConvertedQty(converted);
             line.setSupplierId(ref.supplierId);
             line.setSupplierCode(ref.supplierCode);
             line.setSupplierName(ref.supplierName);
             line.setSupplierPriceId(ref.priceId);
+            line.setErrorMsg("");
             BigDecimal originalQty = line.getQty() == null ? BigDecimal.ZERO : line.getQty();
-            if (ref.qty.compareTo(originalQty) >= 0) {
+            if (converted.compareTo(originalQty) >= 0) {
                 line.setStatus(3); // 已转完
             } else {
                 line.setStatus(2); // 部分转
             }
-            requisitionLineService.update(line);
+            lineMapper.updateById(line);
         }
 
         // 汇总更新 requisition 头状态
@@ -611,7 +670,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
                     .collect(Collectors.toList());
             boolean allDone = allReqLines.stream().allMatch(l -> {
                 Integer s = l.getStatus();
-                return Integer.valueOf(3).equals(s) || Integer.valueOf(7).equals(s);
+                return Integer.valueOf(3).equals(s);
             });
             boolean anyConverted = allReqLines.stream().anyMatch(l -> Integer.valueOf(3).equals(l.getStatus()));
             boolean anyPending = allReqLines.stream().anyMatch(l -> Integer.valueOf(2).equals(l.getStatus()));
@@ -677,8 +736,9 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
     private Map<String, Object> findDefaultSupplier(Long materialId) {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT supplier_id, supplier_code, supplier_name FROM pdm_material_supplier " +
-                            "WHERE material_id=? AND COALESCE(is_default,0)=1 AND status=1 ORDER BY priority LIMIT 1",
+                    "SELECT ms.supplier_id, s.supplier_code, ms.supplier_name FROM pdm_material_supplier ms " +
+                            "LEFT JOIN scm_supplier s ON s.supplier_id = ms.supplier_id " +
+                            "WHERE ms.material_id=? AND COALESCE(ms.is_default,0)=1 AND ms.status=1 ORDER BY ms.priority LIMIT 1",
                     materialId);
             if (!rows.isEmpty()) {
                 Map<String, Object> r = rows.get(0);
@@ -757,14 +817,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
     }
 
     private Integer findMaterialQcRequired(Long materialId) {
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT qc_required FROM pdm_material WHERE material_id=? LIMIT 1", materialId);
-            if (!rows.isEmpty() && rows.get(0).get("qc_required") != null) {
-                int v = ((Number) rows.get(0).get("qc_required")).intValue();
-                return v == 1 || v == 2 ? v : 0;
-            }
-        } catch (Exception ignore) {}
+        // Material master has no QC flag; leave the purchase line's default unchanged.
         return 0;
     }
 }

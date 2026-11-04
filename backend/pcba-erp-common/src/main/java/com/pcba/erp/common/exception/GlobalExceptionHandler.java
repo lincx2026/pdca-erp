@@ -92,6 +92,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public R<Void> handleAll(Exception e, HttpServletRequest req) {
         log.error("系统异常 [{}]", req.getRequestURI(), e);
-        return R.fail(500, "系统异常: " + e.getMessage());
+        return R.fail(500, "系统异常，请联系管理员");
     }
 }

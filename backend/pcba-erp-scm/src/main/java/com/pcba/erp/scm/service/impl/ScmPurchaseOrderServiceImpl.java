@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Field;
@@ -37,6 +38,7 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
 
     private final ScmPurchaseOrderMapper mapper;
     private final ScmPurchaseOrderLineMapper lineMapper;
+    private final JdbcTemplate jdbcTemplate;
     @Lazy private final IScmApPayableService payableService;
     @Lazy private final IWmsStockInService stockInService;
 
@@ -61,10 +63,11 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
             f.setAccessible(true);
             Object v = f.get(entity);
             if (v == null || v.toString().isBlank()) {
-                String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-                f.set(entity, "PO" + ts);
+                LocalDate today = LocalDate.now();
+                Long number = jdbcTemplate.queryForObject("INSERT INTO document_number_counter(document_type, number_date, last_number) VALUES ('PO', ?, 1) ON CONFLICT (document_type, number_date) DO UPDATE SET last_number = document_number_counter.last_number + 1 RETURNING last_number", Long.class, today);
+                f.set(entity, "PO" + today.format(DateTimeFormatter.ofPattern("yyMMdd")) + String.format("%04d", number));
             }
-        } catch (Exception ignore) {}
+        } catch (ReflectiveOperationException ex) { throw new ServiceException("生成采购订单号失败"); }
         try {
             Field f = ScmPurchaseOrder.class.getDeclaredField("poDate");
             f.setAccessible(true);

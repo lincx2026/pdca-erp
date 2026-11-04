@@ -28,7 +28,8 @@
       <el-divider direction="vertical" />
       <el-button v-hasPermi="'scm:requisition:submit'" :disabled="!curRow || curRow.status != 0 && curRow.status != 4" @click="doSubmit(curRow)"><el-icon><Promotion /></el-icon> 提交审核</el-button>
       <el-button v-hasPermi="'scm:requisition:audit'" :disabled="!curRow || curRow.status != 1" type="success" @click="doAudit(curRow)"><el-icon><CircleCheck /></el-icon> 审核通过</el-button>
-      <el-button v-hasPermi="'scm:requisition:audit'" :disabled="!curRow || curRow.status != 1" type="danger" @click="doReject(curRow)"><el-icon><CircleClose /></el-icon> 审核驳回</el-button>
+      <el-button v-hasPermi="'scm:requisition:reject'" :disabled="!curRow || curRow.status != 1" type="danger" @click="doReject(curRow)"><el-icon><CircleClose /></el-icon> 审核驳回</el-button>
+      <span style="color:#909399">点击单据行进行审核；勾选已审核单据批量转PO</span>
       <el-divider direction="vertical" />
       <el-button v-hasPermi="'scm:requisition:generateShortfall'" type="warning" @click="openGenerateShortfall"><el-icon><Warning /></el-icon> 生成安全库存短缺单</el-button>
       <el-button v-hasPermi="'scm:requisition:convert'" type="primary" :disabled="!canBatchConvert()" @click="openConvertPoDlg">
@@ -57,8 +58,8 @@
       <el-table-column prop="title" label="标题" width="200" show-overflow-tooltip />
       <el-table-column prop="requisitionDate" label="请购日期" width="110" />
       <el-table-column prop="requiredDate" label="需求日期" width="110" />
-      <el-table-column prop="applicant" label="申请人" width="100" />
-      <el-table-column prop="dept" label="部门" width="120" />
+      <el-table-column prop="applicantName" label="申请人" width="100" />
+      <el-table-column prop="deptName" label="部门" width="120" />
       <el-table-column prop="totalAmount" label="总金额" width="120" align="right">
         <template #default="{ row }">{{ row.totalAmount == null ? '-' : '¥' + Number(row.totalAmount).toFixed(2) }}</template>
       </el-table-column>
@@ -68,6 +69,8 @@
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
+          <el-button v-hasPermi="'scm:requisition:add'" size="small" link type="primary" @click="copyRequisition(row)">复制</el-button>
+          <el-button v-if="Number(row.status) === 1" v-hasPermi="'scm:requisition:audit'" size="small" link type="success" @click="doAudit(row)">审核</el-button>
           <el-button v-if="canEdit(row)" v-hasPermi="'scm:requisition:edit'" size="small" link type="primary" @click="openDialog(row)">编辑</el-button>
           <el-button v-else size="small" link type="primary" disabled>编辑</el-button>
           <el-popconfirm v-if="canRemove(row)" title="确认删除？" @confirm="onRemove(row)">
@@ -102,8 +105,8 @@
           <el-col :span="12"><el-form-item label="需求日期" prop="requiredDate"><el-date-picker v-model="form.requiredDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="申请人" prop="applicant"><el-input v-model="form.applicant" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="部门" prop="dept"><el-input v-model="form.dept" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="申请人" prop="applicantName"><el-input v-model="form.applicantName" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="部门" prop="deptName"><el-input v-model="form.deptName" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="币种"><el-input v-model="form.currency" placeholder="CNY" /></el-form-item></el-col>
@@ -130,14 +133,14 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="请购/需求日期">{{ linesOwner.requisitionDate || '-' }} / {{ linesOwner.requiredDate || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="申请人/部门">{{ linesOwner.applicant || '-' }} / {{ linesOwner.dept || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="申请人/部门">{{ linesOwner.applicantName || '-' }} / {{ linesOwner.deptName || '-' }}</el-descriptions-item>
           <el-descriptions-item label="总金额">{{ linesOwner.totalAmount == null ? '-' : '¥' + Number(linesOwner.totalAmount).toFixed(2) }}</el-descriptions-item>
         </el-descriptions>
       </div>
       <el-divider content-position="left">
         <span style="display:flex;align-items:center;gap:10px;">
           <span>请购明细行（共 {{ lines.length }} 行）</span>
-          <el-button type="primary" size="small" @click="openLineDialog()">新增行</el-button>
+          <el-button v-if="canEdit(linesOwner)" type="primary" size="small" @click="openLineDialog()">新增行</el-button>
         </span>
       </el-divider>
       <el-table v-loading="linesLoading" :data="lines" stripe border size="small" max-height="520">
@@ -145,7 +148,7 @@
         <el-table-column prop="materialId" label="物料ID" width="80" align="right" />
         <el-table-column prop="materialCode" label="物料编码" width="140" />
         <el-table-column prop="materialName" label="物料名称" min-width="170" show-overflow-tooltip />
-        <el-table-column prop="spec" label="规格" width="140" show-overflow-tooltip />
+        <el-table-column prop="specification" label="规格" width="140" show-overflow-tooltip />
         <el-table-column prop="unit" label="单位" width="64" align="center" />
         <el-table-column prop="qty" label="需求数量" width="100" align="right">
           <template #default="{ row }">{{ Number(row.qty||0).toLocaleString() }}</template>
@@ -159,15 +162,15 @@
         </el-table-column>
         <el-table-column prop="supplierId" label="建议供应商" width="120" align="right" />
         <el-table-column prop="convertedPoId" label="已转PO号" width="140" />
-        <el-table-column prop="totalConverted" label="累计转单数量" width="120" align="right">
-          <template #default="{ row }">{{ Number(row.totalConverted||0).toLocaleString() }}</template>
+        <el-table-column prop="convertedQty" label="累计转单数量" width="120" align="right">
+          <template #default="{ row }">{{ Number(row.convertedQty||0).toLocaleString() }}</template>
         </el-table-column>
         <el-table-column prop="requiredDate" label="行需求日期" width="110" />
         <el-table-column prop="remark" label="行备注" min-width="160" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="openLineDialog(row)">编辑</el-button>
-            <el-button size="small" link type="danger" @click="onRemoveLine(row)">删除</el-button>
+            <el-button v-if="canEdit(linesOwner)" size="small" link type="primary" @click="openLineDialog(row)">编辑</el-button>
+            <el-button v-if="canEdit(linesOwner)" size="small" link type="danger" @click="onRemoveLine(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -193,7 +196,7 @@
           <el-col :span="12"><el-form-item label="物料名称"><el-input v-model="lineForm.materialName" maxlength="200" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="规格"><el-input v-model="lineForm.spec" maxlength="200" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="规格"><el-input v-model="lineForm.specification" maxlength="200" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="单位"><el-input v-model="lineForm.unit" maxlength="20" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
@@ -233,7 +236,7 @@
       <div class="convert-wrap">
         <el-alert type="info" :closable="false" show-icon>
           <template #title>
-            将把勾选的 <b class="c-blue">{{ convertibleCount }}</b> 条「已审核(status=2)」请购行（已去重）合并转为 1-N 个采购订单（按供应商分组）。
+            将把勾选的 <b class="c-blue">{{ convertibleCount }}</b> 张已审核请购单中可转明细合并为采购订单（按供应商分组）。
             请先设置公共头参数；若某行缺少必填字段（如 supplierId / buyerId / requiredDateOffsetDays 等），后端会在 warnings 中返回 missingLineIds。
           </template>
         </el-alert>
@@ -390,7 +393,7 @@ function onLineMaterialChange(val: any) {
   if (m) {
     lineForm.materialCode = m.materialCode
     lineForm.materialName = m.materialName
-    lineForm.spec = m.specification
+    lineForm.specification = m.specification
     if (m.unit) lineForm.unit = m.unit
   }
 }
@@ -436,7 +439,7 @@ const formRef = ref<FormInstance>()
 const dialogTitle = computed(() => form.requisitionId ? (readonly.value ? '请购详情' : '修改请购') : '新增请购')
 const form = reactive<any>({
   requisitionId: undefined, requisitionNo: '', title: '', requisitionDate: todayStr(),
-  requiredDate: plusDays(todayStr(), 14), applicant: '', dept: '',
+  requiredDate: plusDays(todayStr(), 14), applicantName: '', deptName: '',
   currency: 'CNY', totalAmount: undefined as number|undefined,
   reason: '', remark: ''
 })
@@ -447,7 +450,7 @@ function formDefaults() {
   Object.assign(form, {
     requisitionId: undefined, requisitionNo: '', title: '',
     requisitionDate: todayStr(), requiredDate: plusDays(todayStr(), 14),
-    applicant: '', dept: '', currency: 'CNY', totalAmount: undefined,
+    applicantName: '', deptName: '', currency: 'CNY', totalAmount: undefined,
     reason: '', remark: ''
   })
 }
@@ -498,6 +501,13 @@ async function onRemove(row: any) {
     await loadList()
   } catch (e: any) { proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || '删除失败') }
 }
+async function copyRequisition(row: any) {
+  try {
+    await scmReqApi.copy(row.requisitionId)
+    ElMessage.success('已复制为草稿，请检查明细和日期')
+    await loadList(1)
+  } catch (e: any) { ElMessage.error(e?.message || '复制失败') }
+}
 
 // ========== 状态机按钮 ==========
 async function doSubmit(row: any) {
@@ -525,10 +535,10 @@ async function doReject(row: any) {
   if (!row?.requisitionId) return
   try {
     const { value } = await ElMessageBox.prompt('请输入驳回原因', '审核驳回', { confirmButtonText: '确认驳回', cancelButtonText: '取消', inputPlaceholder: '驳回原因' })
-    await hasPermOrThrow('scm:requisition:audit')
+    await hasPermOrThrow('scm:requisition:reject')
     let resp: any
     if (proxy?.$request) resp = await proxy.$request('/scm/requisition/audit-reject', 'POST', { requisitionId: row.requisitionId, reason: value || '前端驳回' })
-    else resp = await (scmReqApi as any).auditFail(row.requisitionId, value || '前端驳回')
+    else resp = await scmReqApi.reject(row.requisitionId, value || '')
     if (resp && (resp.code ?? 200) >= 400) throw new Error(resp.msg || '操作失败')
     proxy?.$modal?.msgSuccess?.('已驳回') || ElMessage.success('已驳回'); await loadList()
   } catch (e: any) {
@@ -565,7 +575,7 @@ const lineFormRef = ref<FormInstance>()
 const lineEditingId = ref<number | null>(null)
 const lineForm = reactive<any>({
   requisitionId: undefined, lineId: undefined, lineNo: undefined,
-  materialId: 1, materialCode: '', materialName: '', spec: '', unit: 'PCS',
+  materialId: undefined, materialCode: '', materialName: '', specification: '', unit: 'PCS',
   qty: 0, supplierId: undefined, convertedPoId: undefined, totalConverted: 0,
   requiredDate: '', remark: ''
 })
@@ -577,7 +587,7 @@ const lineDialogTitle = computed(() => lineEditingId.value ? '编辑请购行' :
 function resetLineForm() {
   Object.assign(lineForm, {
     requisitionId: linesOwner.value?.requisitionId, lineId: undefined, lineNo: undefined,
-    materialId: 1, materialCode: '', materialName: '', spec: '', unit: 'PCS',
+    materialId: undefined, materialCode: '', materialName: '', specification: '', unit: 'PCS',
     qty: 0, supplierId: undefined, convertedPoId: undefined, totalConverted: 0,
     requiredDate: linesOwner.value?.requiredDate || plusDays(todayStr(), 14),
     remark: ''
@@ -661,7 +671,7 @@ const canSubmitConvert = computed(() => {
   return true
 })
 function openConvertPoDlg() {
-  if (!canBatchConvert()) { ElMessage.warning('需勾选至少一条"已审核(status=2)"的请购行'); return }
+  if (!canBatchConvert()) { ElMessage.warning('请勾选至少一张已审核请购单'); return }
   hd.paymentTerm = '月结30天'
   hd.currency = 'CNY'
   hd.taxRate = 13
@@ -674,13 +684,22 @@ async function submitConvert() {
   if (!canSubmitConvert.value) { ElMessage.warning('请完善公共头参数'); return }
   try {
     convertSubmitting.value = true
-    const lineIds = selection.value
-      .filter((r: any) => Number(r.status) === 2)
-      .map((r: any) => r.lineId ?? r.requisitionLineId ?? r.id)
-      .filter((x: any) => x != null)
-    if (!lineIds.length) { ElMessage.warning('未获取到有效的请购行ID，可能需要在明细中勾选行'); return }
+    const lineIds: number[] = []
+    for (const order of selection.value.filter((r: any) => Number(r.status) === 2)) {
+      let page = 1, total = 0
+      do {
+        const result: any = await scmReqApi.lines(order.requisitionId, page, 200)
+        const data = result?.data || result
+        const rows = data?.rows || []
+        total = Number(data?.total || 0)
+        lineIds.push(...rows.filter((r: any) => Number(r.status) === 2).map((r: any) => r.lineId))
+        if (!rows.length) break
+        page++
+      } while ((page - 1) * 200 < total)
+    }
+    if (!lineIds.length) { ElMessage.warning('所选单据没有可转采购的明细'); return }
 
-    const resp = await proxy?.$request?.('/scm/requisition/convert-purchase-order', 'POST', {
+    const resp = await scmReqApi.convertPurchaseOrder({
       lineIds,
       paymentTerm: hd.paymentTerm,
       currency: hd.currency,
@@ -702,10 +721,10 @@ async function submitConvert() {
     if (missing.length || warnings.length) {
       setTimeout(() => {
         ElMessageBox.alert(
-          'missingLineIds: ' + JSON.stringify(missing.slice(0, 30)) +
-          (warnings.length ? ('<br/>warnings: ' + JSON.stringify(warnings.slice(0, 10))) : ''),
+          '缺失供应商明细: ' + JSON.stringify(missing.slice(0, 30)) +
+          (warnings.length ? ('\n提示: ' + JSON.stringify(warnings.slice(0, 10))) : ''),
           '后端返回提示 (前30)',
-          { dangerouslyUseHTMLString: true, type: 'warning' }
+          { type: 'warning' }
         ).catch(()=>{})
       }, 300)
     }

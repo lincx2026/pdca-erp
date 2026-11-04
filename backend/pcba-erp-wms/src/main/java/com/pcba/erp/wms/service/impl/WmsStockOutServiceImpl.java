@@ -47,10 +47,10 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
     /* ========== 分页查询 ========== */
     @Override
     public IPage<WmsStockOut> selectStockOutPage(int pageNum, int pageSize,
-                                                  String orderNo, Long warehouseId,
+                                                  String orderNo, String saleOrderNo, Long warehouseId,
                                                   String outType, Integer status) {
         Page<WmsStockOut> page = new Page<>(pageNum, pageSize);
-        return baseMapper.selectStockOutPage(page, orderNo, warehouseId, outType, status);
+        return baseMapper.selectStockOutPage(page, orderNo, saleOrderNo, warehouseId, outType, status);
     }
 
     /* ========== 详情 ========== */
@@ -59,29 +59,16 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         WmsStockOut so = baseMapper.selectById(stockOutId);
         if (so == null) return null;
         so.setLines(lineMapper.selectByStockOutId(stockOutId));
+        so.setSaleOrderNos(jdbcTemplate.queryForObject("SELECT string_agg(DISTINCT o.so_no, ', ') FROM wms_stock_out_line l JOIN sal_sales_order o ON o.so_id=l.so_id WHERE l.stock_out_id=?", String.class, stockOutId));
         return so;
     }
 
     /* ========== 单号生成 ========== */
     @Override
-    public synchronized String nextOrderNo() {
+    public String nextOrderNo() {
         String today = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
-        String prefix = "OUT" + today;
-        List<WmsStockOut> list = baseMapper.selectList(new LambdaQueryWrapper<WmsStockOut>()
-                .likeRight(WmsStockOut::getOrderNo, prefix)
-                .orderByDesc(WmsStockOut::getOrderNo)
-                .last("LIMIT 1"));
-        int seq = 1;
-        if (list != null && !list.isEmpty()) {
-            String maxNo = list.get(0).getOrderNo();
-            if (maxNo != null && maxNo.length() > prefix.length()) {
-                try {
-                    seq = Integer.parseInt(maxNo.substring(prefix.length())) + 1;
-                } catch (NumberFormatException ignored) {
-                }
-            }
-        }
-        return prefix + String.format("%03d", seq);
+        Long seq = jdbcTemplate.queryForObject("SELECT nextval('wms_stock_out_number_seq')", Long.class);
+        return "OUT" + today + "-" + seq;
     }
 
     /* ========== 保存 ========== */
@@ -98,6 +85,7 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         if (stockOut.getOutType() == null || stockOut.getOutType().isBlank()) {
             stockOut.setOutType("PRODUCTION");
         }
+        validateSalesLines(stockOut.getOutType(), stockOut.getCustomerId(), stockOut.getLines());
         if (stockOut.getStatus() == null) stockOut.setStatus(0);
 
         stockOut.setTotalQty(calcTotalQty(stockOut.getLines()));
@@ -124,6 +112,8 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
 
         List<WmsStockOutLine> lines = stockOut.getLines();
         if (lines != null) {
+            validateSalesLines(stockOut.getOutType() == null ? old.getOutType() : stockOut.getOutType(),
+                    stockOut.getCustomerId() == null ? old.getCustomerId() : stockOut.getCustomerId(), lines);
             lineMapper.delete(new LambdaQueryWrapper<WmsStockOutLine>()
                     .eq(WmsStockOutLine::getStockOutId, stockOut.getStockOutId()));
             stockOut.setTotalQty(calcTotalQty(lines));
@@ -146,7 +136,7 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean submitAudit(Long stockOutId) {
-        WmsStockOut old = requireStatus(stockOutId, 0);
+        WmsStockOut old = requireStatus(stockOutId, 0, 4);
         old.setStatus(1);
         return baseMapper.updateById(old) > 0;
     }
@@ -262,6 +252,21 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
             if (l.getQuantity() == null || l.getQuantity().signum() <= 0) throw new ServiceException("出库数量必须大于0");
             lineMapper.insert(l);
         }
+    }
+
+    private void validateSalesLines(String outType, Long customerId, List<WmsStockOutLine> lines) {
+        if (lines == null || lines.stream().noneMatch(l -> l.getSoId() != null || l.getSoLineId() != null)) return;
+        if (!"SALES".equals(outType)) throw new ServiceException("关联销售订单的明细必须使用销售出库类型");
+        Set<Long> orders = new HashSet<>();
+        for (WmsStockOutLine line : lines) {
+            if (line.getSoId() == null || line.getSoLineId() == null || line.getMaterialId() == null)
+                throw new ServiceException("关联销售订单时，每行都必须选择订单明细");
+            orders.add(line.getSoId());
+            Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sal_sales_order_line l JOIN sal_sales_order s ON s.so_id=l.so_id WHERE l.line_id=? AND l.so_id=? AND l.material_id=? AND (CAST(? AS BIGINT) IS NULL OR s.customer_id=?)", Integer.class,
+                    line.getSoLineId(), line.getSoId(), line.getMaterialId(), customerId, customerId);
+            if (count == null || count != 1) throw new ServiceException("销售订单、客户与物料明细不匹配");
+        }
+        if (orders.size() != 1) throw new ServiceException("一张销售出库单只能关联一张销售订单");
     }
 
     private static BigDecimal nullToZero(BigDecimal v) {
@@ -475,6 +480,13 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         if (lines == null || lines.isEmpty()) return;
         Set<Long> touchedSoIds = new HashSet<>();
 
+        // Lock orders in a stable order so concurrent shipments cannot over-allocate or race status updates.
+        for (Long id : lines.stream().map(WmsStockOutLine::getSoId).filter(Objects::nonNull).distinct().sorted().toList()) {
+            List<Integer> statuses = jdbcTemplate.queryForList("SELECT status FROM sal_sales_order WHERE so_id=? FOR UPDATE", Integer.class, id);
+            if (statuses.isEmpty() || (sign > 0 && !Arrays.asList(2, 3, 4).contains(statuses.get(0))))
+                throw new ServiceException("销售订单不存在或状态不允许出库");
+        }
+
         for (WmsStockOutLine l : lines) {
             BigDecimal qty = nullToZero(l.getQuantity());
             if (qty.signum() == 0) continue;
@@ -484,7 +496,8 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
                 continue;
             }
             BigDecimal delta = qty.multiply(BigDecimal.valueOf(sign));
-            adjustSoLineShipped(soLineId, delta);
+            if (l.getSoId() == null || l.getMaterialId() == null) throw new ServiceException("销售出库明细缺少订单或物料关联");
+            adjustSoLineShipped(l, delta);
             Long soId = l.getSoId();
             if (soId == null) soId = selectSoIdByLineId(soLineId);
             if (soId != null) touchedSoIds.add(soId);
@@ -492,12 +505,12 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         for (Long soId : touchedSoIds) recomputeSoStatus(soId);
     }
 
-    private void adjustSoLineShipped(Long soLineId, BigDecimal delta) {
-        if (soLineId == null || delta == null || delta.signum() == 0) return;
+    private void adjustSoLineShipped(WmsStockOutLine line, BigDecimal delta) {
+        if (delta == null || delta.signum() == 0) return;
         int rows = jdbcTemplate.update(
-                "UPDATE sal_sales_order_line SET shipped_qty = GREATEST(0, COALESCE(shipped_qty,0) + ?) WHERE line_id = ?",
-                delta, soLineId);
-        if (rows == 0) log.warn("[adjustSoLineShipped] 未找到SO行 lineId={}", soLineId);
+                "UPDATE sal_sales_order_line SET shipped_qty = COALESCE(shipped_qty,0) + ? WHERE line_id = ? AND so_id = ? AND material_id = ? AND COALESCE(shipped_qty,0) + ? BETWEEN 0 AND order_qty",
+                delta, line.getSoLineId(), line.getSoId(), line.getMaterialId(), delta);
+        if (rows != 1) throw new ServiceException("销售订单明细不匹配或出库数量超过未发数量");
     }
 
     private Long selectSoIdByLineId(Long lineId) {
@@ -532,7 +545,7 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         BigDecimal sumShipped = toDecimal(agg.get("ss"));
         Integer cur = agg.get("cur") == null ? null : ((Number) agg.get("cur")).intValue();
         if (cur == null) return;
-        if (!Arrays.asList(3, 4, 5).contains(cur)) return;
+        if (!Arrays.asList(2, 3, 4, 5).contains(cur)) return;
 
         int next;
         boolean clearStockOut = false;

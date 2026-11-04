@@ -363,6 +363,7 @@ export const stockInApi = {
 // 出库单
 export interface StockOutListQ extends PageQ {
   orderNo?: string
+  saleOrderNo?: string
   warehouseId?: number
   outType?: string
   status?: number
@@ -403,6 +404,17 @@ export const workOrderApi = {
   finish:  (id: number) => request.put<number>('/pm/work-order/finish/' + id),
   close:   (id: number) => request.put<number>('/pm/work-order/close/' + id),
   cancel:  (id: number) => request.put<number>('/pm/work-order/cancel/' + id)
+}
+
+export const workInstructionApi = {
+  get: (id: number) => request.get<any>(`/pm/work-order/${id}/instruction`),
+  save: (id: number, data: object) => request.put(`/pm/work-order/${id}/instruction`, data),
+  attachments: (id: number) => request.get<any[]>(`/pm/work-order/${id}/instruction/attachments`),
+  upload: (id: number, kind: 'IMAGE' | 'FIRMWARE', file: File) => {
+    const body = new FormData(); body.append('kind', kind); body.append('file', file)
+    return request.post<any>(`/pm/work-order/${id}/instruction/attachments`, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  file: (id: number, attachmentId: number) => request.instance.get(`/pm/work-order/${id}/instruction/attachments/${attachmentId}`, { responseType: 'blob' })
 }
 
 /** 工单BOM */
@@ -684,14 +696,16 @@ export const scmReqApi = {
   get:     (id: number) => request.get<ScmPurchaseRequisition>('/scm/requisition/' + id),
   options: () => request.get<ScmPurchaseRequisition[]>('/scm/requisition/options') as any,
   add:     (d: Partial<ScmPurchaseRequisition>) => request.post<number>('/scm/requisition', d),
+  copy:    (id: number) => request.post<number>(`/scm/requisition/${id}/copy`),
+  convertPurchaseOrder: (body: object) => request.post<any>('/scm/requisition/convert-purchase-order', body),
   edit:    (d: Partial<ScmPurchaseRequisition>) => request.put<number>('/scm/requisition', d),
   remove:  (id: number) => request.delete<number>('/scm/requisition/' + id),
   submit:  (id: number) => request.put<number>('/scm/requisition/submit/' + id),
   audit:   (id: number) => request.put<number>('/scm/requisition/audit/' + id),
-  reject:  (id: number) => request.put<number>('/scm/requisition/reject/' + id),
+  reject:  (id: number, reason: string) => request.put<number>('/scm/requisition/reject/' + id, { reason }),
   convert: (id: number) => request.put<number>('/scm/requisition/convert/' + id),
   cancel:  (id: number) => request.put<number>('/scm/requisition/cancel/' + id),
-  lines:   (requisitionId: number) => request.get<{ rows: ScmPurchaseRequisitionLine[]; total: number }>('/scm/requisition-line/list', { requisitionId, pageNum: 1, pageSize: 200 }) as any,
+  lines:   (requisitionId: number, pageNum = 1, pageSize = 200) => request.get<{ rows: ScmPurchaseRequisitionLine[]; total: number }>(`/scm/requisition/${requisitionId}/lines`, { pageNum, pageSize }) as any,
   addLine: (d: Partial<ScmPurchaseRequisitionLine>) => request.post<number>('/scm/requisition-line', d),
   editLine:(d: Partial<ScmPurchaseRequisitionLine>) => request.put<number>('/scm/requisition-line', d),
   removeLine:(id: number) => request.delete<number>('/scm/requisition-line/' + id)

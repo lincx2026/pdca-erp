@@ -29,6 +29,8 @@ public class WmsStockOut implements Serializable {
 
     /** 出库类型 PRODUCTION=生产领料 SALES=销售出库 TRANSFER=调拨出库 OTHER=其他 */
     private String outType;
+    @TableField(exist = false)
+    private String saleOrderNos;
 
     /** 客户ID（销售出库时） */
     private Long customerId;

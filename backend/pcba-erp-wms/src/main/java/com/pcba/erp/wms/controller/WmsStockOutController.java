@@ -28,11 +28,12 @@ public class WmsStockOutController {
     public R<TableDataInfo> list(@RequestParam(defaultValue = "1") int pageNum,
                                  @RequestParam(defaultValue = "20") int pageSize,
                                  @RequestParam(required = false) String orderNo,
+                                 @RequestParam(required = false) String saleOrderNo,
                                  @RequestParam(required = false) Long warehouseId,
                                  @RequestParam(required = false) String outType,
                                  @RequestParam(required = false) Integer status) {
         IPage<WmsStockOut> page = stockOutService.selectStockOutPage(pageNum, pageSize,
-                orderNo, warehouseId, outType, status);
+                orderNo, saleOrderNo, warehouseId, outType, status);
         TableDataInfo info = new TableDataInfo();
         info.setRows(page.getRecords());
         info.setTotal(page.getTotal());

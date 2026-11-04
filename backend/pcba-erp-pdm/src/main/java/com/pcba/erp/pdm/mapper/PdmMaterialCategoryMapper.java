@@ -38,17 +38,17 @@ public interface PdmMaterialCategoryMapper extends BaseMapper<PdmMaterialCategor
             @Param("dataScope") String dataScope);
 
     /** 校验同级分类名称是否唯一 */
-    @Select("SELECT COUNT(*) FROM pdm_material_category " +
+    @Select("<script>SELECT COUNT(*) FROM pdm_material_category " +
             "WHERE parent_id = #{parentId} AND category_name = #{categoryName} " +
-            "AND (#{categoryId} IS NULL OR category_id != #{categoryId})")
+            "<if test='categoryId != null'>AND category_id != #{categoryId}</if></script>")
     int countDuplicateName(@Param("parentId") Long parentId,
                            @Param("categoryName") String categoryName,
                            @Param("categoryId") Long categoryId);
 
     /** 校验分类编码前缀是否唯一 (全局唯一) */
-    @Select("SELECT COUNT(*) FROM pdm_material_category " +
+    @Select("<script>SELECT COUNT(*) FROM pdm_material_category " +
             "WHERE category_code = #{categoryCode} " +
-            "AND (#{categoryId} IS NULL OR category_id != #{categoryId})")
+            "<if test='categoryId != null'>AND category_id != #{categoryId}</if></script>")
     int countDuplicateCode(@Param("categoryCode") String categoryCode,
                            @Param("categoryId") Long categoryId);
 

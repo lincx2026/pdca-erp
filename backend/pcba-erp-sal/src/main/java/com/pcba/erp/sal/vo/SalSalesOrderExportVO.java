@@ -18,6 +18,9 @@ public class SalSalesOrderExportVO {
     @ExcelProperty("订单编号") @ColumnWidth(22)
     private String soNo;
 
+    @ExcelProperty("客户订单号") @ColumnWidth(22)
+    private String customerOrderNo;
+
     @ExcelProperty("订单类型")
     private String soType;
 

@@ -45,6 +45,9 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long save(ScmPurchaseRequisitionLine entity) {
+        requireEditable(entity.getRequisitionId());
+        if (entity.getMaterialId() == null || entity.getQty() == null || entity.getQty().signum() <= 0) throw new ServiceException("请选择物料并填写大于零的数量");
+        entity.setStatus(0); entity.setConvertedPoId(null); entity.setConvertedPoLineId(null); entity.setConvertedQty(BigDecimal.ZERO);
         // 物料回填
         fillMaterial(entity);
         // lineNo 按主单递增
@@ -84,6 +87,10 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
         if (id == null) throw new ServiceException("ID不能为空");
         ScmPurchaseRequisitionLine old = mapper.selectById(id);
         if (old == null) throw new ServiceException("记录不存在");
+        requireEditable(old.getRequisitionId());
+        if (entity.getQty() != null && entity.getQty().signum() <= 0) throw new ServiceException("数量必须大于零");
+        entity.setStatus(old.getStatus());
+        entity.setConvertedPoId(old.getConvertedPoId()); entity.setConvertedPoLineId(old.getConvertedPoLineId()); entity.setConvertedQty(old.getConvertedQty());
         // 物料回填（支持按新传入 materialId 重新带出）
         fillMaterial(entity);
         // 编辑时保持主键/主单/行号一致
@@ -108,6 +115,7 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
     public boolean remove(Long id) {
         ScmPurchaseRequisitionLine r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
+        requireEditable(r.getRequisitionId());
         boolean ok = mapper.deleteById(id) > 0;
         if (ok) recomputeHeader(r.getRequisitionId());
         return ok;
@@ -135,6 +143,12 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
     }
 
     /* ========== 私有工具：物料回填 + 主单合计重算 ========== */
+
+    private void requireEditable(Long id) {
+        ScmPurchaseRequisition header = requisitionMapper.selectById(id);
+        if (header == null || (!Integer.valueOf(0).equals(header.getStatus()) && !Integer.valueOf(4).equals(header.getStatus())))
+            throw new ServiceException("仅草稿或已驳回的请购单可以修改明细");
+    }
 
     /** 按 materialId 从 PDM 带出编码/名称/规格/单位（前端传入的优先） */
     private void fillMaterial(ScmPurchaseRequisitionLine entity) {

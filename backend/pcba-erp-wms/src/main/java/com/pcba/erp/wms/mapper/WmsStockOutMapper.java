@@ -22,13 +22,14 @@ public interface WmsStockOutMapper extends BaseMapper<WmsStockOut> {
      * 支持按 orderNo LIKE / warehouseId = / outType = / status = 筛选
      */
     @Select("<script>" +
-            "SELECT s.*, w.warehouse_name AS warehouse_name " +
+            "SELECT s.*, w.warehouse_name AS warehouse_name, (SELECT string_agg(DISTINCT o.so_no, ', ') FROM wms_stock_out_line l JOIN sal_sales_order o ON o.so_id = l.so_id WHERE l.stock_out_id = s.stock_out_id) AS sale_order_nos " +
             "FROM wms_stock_out s " +
             "LEFT JOIN wms_warehouse w ON s.warehouse_id = w.warehouse_id " +
             "<where> " +
             "  <if test='orderNo != null and orderNo != \"\"'> " +
             "    AND s.order_no LIKE CONCAT('%', CAST(#{orderNo} AS TEXT), '%') " +
             "  </if> " +
+            "  <if test='saleOrderNo != null and saleOrderNo != \"\"'> AND EXISTS (SELECT 1 FROM wms_stock_out_line l JOIN sal_sales_order o ON o.so_id=l.so_id WHERE l.stock_out_id=s.stock_out_id AND o.so_no LIKE CONCAT('%', CAST(#{saleOrderNo} AS TEXT), '%')) </if> " +
             "  <if test='warehouseId != null'> AND s.warehouse_id = #{warehouseId} </if> " +
             "  <if test='outType != null and outType != \"\"'> AND s.out_type = #{outType} </if> " +
             "  <if test='status != null'> AND s.status = #{status} </if> " +
@@ -37,6 +38,7 @@ public interface WmsStockOutMapper extends BaseMapper<WmsStockOut> {
             "</script>")
     IPage<WmsStockOut> selectStockOutPage(Page<WmsStockOut> page,
                                           @Param("orderNo") String orderNo,
+                                          @Param("saleOrderNo") String saleOrderNo,
                                           @Param("warehouseId") Long warehouseId,
                                           @Param("outType") String outType,
                                           @Param("status") Integer status);

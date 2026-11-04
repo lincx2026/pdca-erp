@@ -11,11 +11,14 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface SalSalesOrderMapper extends BaseMapper<SalSalesOrder> {
 
+    @Select("SELECT * FROM sal_sales_order WHERE so_id = #{id} FOR UPDATE")
+    SalSalesOrder selectForUpdate(@Param("id") Long id);
+
     @Select("<script>" +
             "SELECT * FROM sal_sales_order " +
             "<where>" +
             "  <if test=\"soNo != null and soNo != ''\">" +
-            "    AND so_no LIKE CONCAT('%', CAST(#{soNo} AS TEXT), '%')" +
+            "    AND (so_no LIKE CONCAT('%', CAST(#{soNo} AS TEXT), '%') OR customer_order_no LIKE CONCAT('%', CAST(#{soNo} AS TEXT), '%'))" +
             "  </if>" +
             "  <if test=\"soType != null and soType != ''\">" +
             "    AND so_type LIKE CONCAT('%', CAST(#{soType} AS TEXT), '%')" +

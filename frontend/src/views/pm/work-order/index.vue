@@ -21,7 +21,7 @@
           <el-input v-model="q.workCenter" placeholder="工作中心" clearable @keyup.enter="loadList" />
         </el-form-item>
         <el-form-item label="销售订单">
-          <el-input v-model="q.saleOrderNo" placeholder="销售订单号" clearable @keyup.enter="loadList" />
+          <el-input v-model="q.saleOrderNo" placeholder="销售或客户订单号" clearable @keyup.enter="loadList" />
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="q.status" placeholder="全部" clearable style="width:120px">
@@ -61,6 +61,8 @@
         <el-table-column label="计划开始" prop="planStartDate" width="110" />
         <el-table-column label="计划结束" prop="planEndDate" width="110" />
         <el-table-column label="销售订单" prop="saleOrderNo" width="130" show-overflow-tooltip />
+        <el-table-column label="客户订单号" prop="customerOrderNo" width="150" show-overflow-tooltip />
+        <el-table-column label="加工厂" prop="factoryName" width="140" show-overflow-tooltip />
         <el-table-column label="优先级" prop="priority" width="80" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.priority === 1" type="danger" size="small">紧急</el-tag>
@@ -76,11 +78,12 @@
         <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+            <el-button link type="primary" @click="instructionOrder = row; instructionVisible = true">生产指令</el-button>
             <el-button link type="primary" v-if="row.status===0" v-hasPermi="'pm:workorder:edit'" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="success" v-if="row.status===0" v-hasPermi="'pm:workorder:audit'" @click="handleRelease(row)">下发</el-button>
-            <el-button link type="success" v-if="row.status===10 || row.status===20" v-hasPermi="'pm:workorder:audit'" @click="handleFinish(row)">完工</el-button>
-            <el-button link type="info" v-if="row.status===40" v-hasPermi="'pm:workorder:audit'" @click="handleClose(row)">关闭</el-button>
-            <el-button link type="warning" v-if="row.status===0" v-hasPermi="'pm:workorder:audit'" @click="handleCancel(row)">取消</el-button>
+            <el-button link type="success" v-if="row.status===0" v-hasPermi="'pm:workorder:release'" @click="handleRelease(row)">下发</el-button>
+            <el-button link type="success" v-if="row.status===10 || row.status===20" v-hasPermi="'pm:workorder:finish'" @click="handleFinish(row)">完工</el-button>
+            <el-button link type="info" v-if="row.status===40" v-hasPermi="'pm:workorder:close'" @click="handleClose(row)">关闭</el-button>
+            <el-button link type="warning" v-if="row.status===0" v-hasPermi="'pm:workorder:cancel'" @click="handleCancel(row)">取消</el-button>
             <el-button link type="danger" v-if="row.status===0" v-hasPermi="'pm:workorder:remove'" @click="handleRemove(row)">删除</el-button>
             <el-button link type="primary" @click="handlePrint(row)">打印</el-button>
           </template>
@@ -192,12 +195,31 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="销售订单">
-              <el-input v-model="editDlg.form.saleOrderNo" placeholder="销售订单号" />
+              <el-select v-model="editDlg.form.saleOrderId" filterable placeholder="选择销售订单" style="width:100%" @change="onSaleOrderChange">
+                <el-option v-for="o in saleOrders" :key="o.soId" :value="o.soId" :label="`${o.soNo} ${o.customerName || ''}`" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="订单明细">
+              <el-select v-model="editDlg.form.saleOrderLineId" filterable placeholder="选择订单物料" style="width:100%" @change="onSaleLineChange">
+                <el-option v-for="l in saleLines" :key="l.lineId" :value="l.lineId" :label="`${l.materialCode || ''} ${l.materialName || ''}`" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="客户订单号"><el-input v-model="editDlg.form.customerOrderNo" :disabled="!!editDlg.form.saleOrderId" maxlength="100" /></el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="加工厂">
+              <el-select v-model="editDlg.form.factoryId" filterable placeholder="选择加工厂" style="width:100%">
+                <el-option v-for="f in factories" :key="f.factoryId" :value="f.factoryId" :label="f.factoryName" />
+              </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户名称">
-              <el-input v-model="editDlg.form.customerName" placeholder="客户名称" />
+              <el-input v-model="editDlg.form.customerName" placeholder="客户名称" :disabled="!!editDlg.form.saleOrderId" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -230,6 +252,8 @@
         <el-descriptions-item label="实际开始">{{ detailDlg.data?.actualStartDate || '-' }}</el-descriptions-item>
         <el-descriptions-item label="实际结束">{{ detailDlg.data?.actualEndDate || '-' }}</el-descriptions-item>
         <el-descriptions-item label="销售订单">{{ detailDlg.data?.saleOrderNo || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="客户订单号">{{ detailDlg.data?.customerOrderNo || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="加工厂">{{ detailDlg.data?.factoryName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="客户">{{ detailDlg.data?.customerName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="statusTagType(detailDlg.data?.status)" size="small">{{ statusLabel(detailDlg.data?.status) }}</el-tag>
@@ -242,6 +266,7 @@
     </el-dialog>
 
     <!-- 打印预览 -->
+    <ProductionInstruction v-if="instructionVisible && instructionOrder" v-model="instructionVisible" :order="instructionOrder" />
     <el-dialog v-model="printVisible" title="打印预览 - 生产工单随工单" width="800px" :close-on-click-modal="false" destroy-on-close>
       <WorkOrderPrint :order="printOrder" :visible="printVisible" />
     </el-dialog>
@@ -252,14 +277,41 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { workOrderApi, materialApi, bomApi, processRouteApi } from '@/api'
-import type { PmmWorkOrder, PdmMaterial, PdmBom, PdmProcessRoute } from '@/types/models'
+import { workOrderApi, materialApi, bomApi, processRouteApi, salOrderApi, companyApi } from '@/api'
+import type { PmmWorkOrder, PdmMaterial, PdmBom, PdmProcessRoute, SalSalesOrder, SalSalesOrderLine, CompanyFactory } from '@/types/models'
 import WorkOrderPrint from '@/views/print/WorkOrderPrint.vue'
+import ProductionInstruction from './ProductionInstruction.vue'
 
 // ========== 下拉选项 ==========
 const materialOptions = ref<PdmMaterial[]>([])
 const bomOptions = ref<PdmBom[]>([])
 const routeOptions = ref<PdmProcessRoute[]>([])
+const saleOrders = ref<SalSalesOrder[]>([])
+const saleLines = ref<SalSalesOrderLine[]>([])
+const factories = ref<CompanyFactory[]>([])
+async function loadReferences() {
+  try { saleOrders.value = await salOrderApi.options() || [] } catch { saleOrders.value = [] }
+  try {
+    const tree = await companyApi.factoryList() || []
+    const flatten = (nodes: CompanyFactory[]): CompanyFactory[] => nodes.flatMap(n => [n, ...flatten(n.children || [])])
+    factories.value = flatten(tree).filter(f => f.nodeType === 'FACTORY' && f.status === 0)
+  } catch { factories.value = [] }
+}
+async function onSaleOrderChange(id?: number) {
+  editDlg.form.saleOrderLineId = undefined
+  const order = saleOrders.value.find(o => o.soId === id)
+  editDlg.form.saleOrderNo = order?.soNo || ''
+  editDlg.form.customerName = order?.customerName || ''
+  editDlg.form.customerOrderNo = order?.customerOrderNo || ''
+  saleLines.value = id ? ((await salOrderApi.lines(id))?.rows || []) : []
+}
+function onSaleLineChange(id?: number) {
+  const line = saleLines.value.find(l => l.lineId === id)
+  if (!line) return
+  editDlg.form.materialId = line.materialId
+  editDlg.form.orderQty = Number(line.orderQty) - Number(line.shippedQty || 0)
+  onMaterialChange(line.materialId)
+}
 
 async function loadOptions() {
   try {
@@ -278,6 +330,8 @@ async function loadOptions() {
 
 // ========== 打印预览 ==========
 const printVisible = ref(false)
+const instructionVisible = ref(false)
+const instructionOrder = ref<PmmWorkOrder | null>(null)
 const printOrder = ref<PmmWorkOrder | null>(null)
 function handlePrint(row: PmmWorkOrder) {
   printOrder.value = row
@@ -368,6 +422,7 @@ async function openEdit(row: PmmWorkOrder) {
   try {
     const res = await workOrderApi.get(row.workOrderId!)
     editDlg.form = { ...res }
+    if (editDlg.form.saleOrderId) saleLines.value = (await salOrderApi.lines(editDlg.form.saleOrderId))?.rows || []
   } catch { editDlg.form = { ...row } }
 }
 async function submitEdit() {
@@ -410,7 +465,7 @@ async function handleRemove(row: PmmWorkOrder) {
   await workOrderApi.remove(row.workOrderId!); ElMessage.success('删除成功'); loadList()
 }
 
-onMounted(() => { loadList(); loadOptions() })
+onMounted(() => { loadList(); loadOptions(); loadReferences() })
 </script>
 
 <style scoped>

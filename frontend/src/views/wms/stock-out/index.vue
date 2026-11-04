@@ -6,6 +6,7 @@
         <el-form-item label="出库单号">
           <el-input v-model="q.orderNo" placeholder="模糊查询" clearable style="width: 180px" />
         </el-form-item>
+        <el-form-item label="销售订单"><el-input v-model="q.saleOrderNo" placeholder="销售订单号" clearable /></el-form-item>
         <el-form-item label="仓库">
           <el-select v-model="q.warehouseId" placeholder="全部" clearable filterable style="width: 180px">
             <el-option v-for="w in warehouseOptions" :key="w.warehouseId" :label="w.warehouseName" :value="w.warehouseId!" />
@@ -38,6 +39,7 @@
           <template #default="{ row }"><b>{{ row.orderNo }}</b></template>
         </el-table-column>
         <el-table-column prop="warehouseName" label="仓库" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="saleOrderNos" label="销售订单" min-width="160" show-overflow-tooltip />
         <el-table-column label="出库类型" width="120" align="center">
           <template #default="{ row }">
             <el-tag :type="outTypeTag(row.outType)" size="small">{{ outTypeLabel(row.outType) }}</el-tag>
@@ -58,28 +60,26 @@
             <!-- 草稿(0): 编辑、提交审核、删除 -->
             <template v-if="row.status === 0">
               <el-button link size="small" type="primary" @click="openEdit(row)" v-hasPermi="'wms:stockout:edit'">编辑</el-button>
-              <el-button link size="small" type="warning" @click="doSubmit(row)" v-hasPermi="'wms:stockout:edit'">提交审核</el-button>
+              <el-button link size="small" type="warning" @click="doSubmit(row)" v-hasPermi="'wms:stockout:audit'">提交审核</el-button>
               <el-button link size="small" type="danger" @click="doRemove(row)" v-hasPermi="'wms:stockout:remove'">删除</el-button>
             </template>
             <!-- 待审核(1): 审核通过、驳回 -->
             <template v-else-if="row.status === 1">
-              <el-button link size="small" type="success" @click="doAudit(row)" v-hasPermi="'wms:stockout:edit'">审核通过</el-button>
-              <el-button link size="small" type="danger" @click="doReject(row)" v-hasPermi="'wms:stockout:edit'">驳回</el-button>
+              <el-button link size="small" type="success" @click="doAudit(row)" v-hasPermi="'wms:stockout:audit'">审核通过</el-button>
+              <el-button link size="small" type="danger" @click="doReject(row)" v-hasPermi="'wms:stockout:audit'">驳回</el-button>
             </template>
             <!-- 已审核(2): 确认出库 -->
             <template v-else-if="row.status === 2">
-              <el-button link size="small" type="success" @click="doConfirm(row)" v-hasPermi="'wms:stockout:edit'">确认出库</el-button>
+              <el-button link size="small" type="success" @click="doConfirm(row)" v-hasPermi="'wms:stockout:confirm'">确认出库</el-button>
             </template>
             <!-- 已出库(3): 详情 -->
-            <template v-else-if="row.status === 3">
-              <el-button link size="small" type="primary" @click="openView(row)">详情</el-button>
-            </template>
             <!-- 已驳回(4): 编辑、提交审核 -->
             <template v-else-if="row.status === 4">
               <el-button link size="small" type="primary" @click="openEdit(row)" v-hasPermi="'wms:stockout:edit'">编辑</el-button>
-              <el-button link size="small" type="warning" @click="doSubmit(row)" v-hasPermi="'wms:stockout:edit'">提交审核</el-button>
+              <el-button link size="small" type="warning" @click="doSubmit(row)" v-hasPermi="'wms:stockout:audit'">提交审核</el-button>
             </template>
             <!-- 打印：所有状态可见 -->
+            <el-button link size="small" type="primary" @click="openView(row)">详情</el-button>
             <el-button link size="small" type="primary" @click="openPrint(row)">打印</el-button>
           </template>
         </el-table-column>
@@ -117,8 +117,15 @@
           </el-col>
           <el-col :span="8">
             <el-form-item label="出库类型" prop="outType">
-              <el-select v-model="form.outType" placeholder="请选择" style="width: 100%">
+              <el-select v-model="form.outType" placeholder="请选择" style="width: 100%" :disabled="!!form.lines?.some(l => l.soLineId)" @change="loadSaleOrders">
                 <el-option v-for="t in OUT_TYPES" :key="t.val" :label="t.label" :value="t.val" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col v-if="form.outType === 'SALES'" :span="16">
+            <el-form-item label="销售订单">
+              <el-select v-model="selectedSaleId" filterable placeholder="选择订单带出待发明细" style="width:100%" @change="selectSaleOrder">
+                <el-option v-for="o in saleOrders" :key="o.soId" :value="o.soId" :label="`${o.soNo} ${o.customerName || ''}`" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -138,14 +145,14 @@
       <!-- 明细表格 -->
       <div class="lines-toolbar">
         <span class="lines-title">出库明细</span>
-        <el-button size="small" type="primary" plain :icon="Plus" @click="addLine">新增行</el-button>
+        <el-button size="small" type="primary" plain :icon="Plus" @click="addLine" :disabled="!!form.lines?.some(l => l.soLineId)">新增行</el-button>
       </div>
       <el-table :data="form.lines" border size="small" max-height="360">
         <el-table-column label="序号" type="index" width="60" align="center" />
         <el-table-column label="物料" min-width="420">
           <template #default="{ row }">
             <div class="mat-cell">
-              <el-select v-model="row.materialId" placeholder="输入编码/名称搜索" filterable style="width: 200px"
+              <el-select v-model="row.materialId" :disabled="!!row.soLineId" placeholder="输入编码/名称搜索" filterable style="width: 200px"
                 @change="(v:any)=>fillMaterial(row, v)">
                 <el-option v-for="m in materialOptions" :key="m.materialId"
                   :label="`${m.materialCode || ''} ${m.materialName}`" :value="m.materialId">
@@ -199,6 +206,7 @@
     <el-dialog v-model="viewDlg.visible" title="出库单详情" width="900px" destroy-on-close top="5vh">
       <el-descriptions :column="2" border size="default" class="mb-16">
         <el-descriptions-item label="出库单号">{{ viewForm.orderNo }}</el-descriptions-item>
+        <el-descriptions-item label="销售订单">{{ viewForm.saleOrderNos || '-' }}</el-descriptions-item>
         <el-descriptions-item label="仓库">{{ viewForm.warehouseName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="出库类型">
           <el-tag :type="outTypeTag(viewForm.outType)" size="small">{{ outTypeLabel(viewForm.outType) }}</el-tag>
@@ -244,10 +252,11 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, Delete } from '@element-plus/icons-vue'
-import { stockOutApi, warehouseApi, materialApi } from '@/api'
-import type { WmsStockOut, WmsStockOutLine, WmsWarehouse, PdmMaterial } from '@/types/models'
+import { stockOutApi, warehouseApi, materialApi, salOrderApi } from '@/api'
+import type { WmsStockOut, WmsStockOutLine, WmsWarehouse, PdmMaterial, SalSalesOrder } from '@/types/models'
 import StockOutPrint from '@/views/print/StockOutPrint.vue'
 
 // ============ 常量映射 ============
@@ -322,13 +331,36 @@ function fillMaterial(row: any, id: number) {
 
 // ============ 查询分页 ============
 const loading = ref(false)
+const route = useRoute()
+const isSalesPage = route.path === '/sal/stock-out'
+const selectedSaleId = ref<number>()
+const saleOrders = ref<SalSalesOrder[]>([])
+async function loadSaleOrders() {
+  if (form.outType !== 'SALES') return
+  try { saleOrders.value = (await salOrderApi.options() || []).filter((o: SalSalesOrder) => [2, 3, 4].includes(Number(o.status))) }
+  catch { saleOrders.value = [] }
+}
+async function selectSaleOrder(id?: number) {
+  const order = saleOrders.value.find(o => o.soId === id)
+  if (!order || !id) return
+  const response: any = await salOrderApi.lines(id)
+  form.customerId = order.customerId
+  form.customerName = order.customerName
+  form.lines = (response?.rows || []).filter((l: any) => Number(l.orderQty) > Number(l.shippedQty || 0)).map((l: any) => ({
+    soId: id, soLineId: l.lineId, materialId: l.materialId, materialCode: l.materialCode,
+    materialName: l.materialName, specification: l.specification, unit: l.unit,
+    quantity: Number(l.orderQty) - Number(l.shippedQty || 0), batchNo: ''
+  }))
+  if (!form.lines?.length) ElMessage.warning('该订单没有待发明细')
+}
 const rows = ref<WmsStockOut[]>([])
 const q = reactive({
   pageNum: 1,
   pageSize: 20,
   orderNo: '',
+  saleOrderNo: String(route.query.saleOrderNo || ''),
   warehouseId: undefined as number | undefined,
-  outType: '',
+  outType: isSalesPage ? 'SALES' : '',
   status: undefined as number | undefined
 })
 const pager = reactive({ pageNum: 1, pageSize: 20, total: 0 })
@@ -347,8 +379,9 @@ async function loadList() {
 }
 function resetQ() {
   q.orderNo = ''
+  q.saleOrderNo = ''
   q.warehouseId = undefined
-  q.outType = ''
+  q.outType = isSalesPage ? 'SALES' : ''
   q.status = undefined
   pager.pageNum = 1
   loadList()
@@ -371,7 +404,6 @@ const form = reactive<Partial<WmsStockOut>>({
   lines: []
 })
 const rules: FormRules = {
-  orderNo: [{ required: true, message: '单号不能为空', trigger: 'blur' }],
   warehouseId: [{ required: true, message: '请选择仓库', trigger: 'change' }],
   outType: [{ required: true, message: '请选择出库类型', trigger: 'change' }]
 }
@@ -415,13 +447,11 @@ function removeLine(idx: number) {
 
 async function openAdd() {
   resetForm()
+  selectedSaleId.value = undefined
+  if (isSalesPage) form.outType = 'SALES'
+  await loadSaleOrders()
   dlg.isEdit = false
   dlg.title = '新增出库单'
-  // 自动生成单号
-  try {
-    const no = await stockOutApi.nextNo() as any
-    form.orderNo = no || ''
-  } catch { /* 忽略, 用户可手填 */ }
   // 预加载物料下拉
   if (materialOptions.value.length === 0) loadMaterialOptions()
   // 默认带一行
@@ -431,10 +461,13 @@ async function openAdd() {
 
 async function openEdit(row: WmsStockOut) {
   resetForm()
+  selectedSaleId.value = undefined
   try {
     const detail = await stockOutApi.get(row.stockOutId!) as any
     Object.assign(form, detail)
     if (!form.lines) form.lines = []
+    selectedSaleId.value = form.lines[0]?.soId
+    await loadSaleOrders()
   } catch {
     ElMessage.error('加载出库单失败')
     return

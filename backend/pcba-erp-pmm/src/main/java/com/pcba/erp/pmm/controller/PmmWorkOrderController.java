@@ -6,12 +6,20 @@ import com.pcba.erp.common.core.R;
 import com.pcba.erp.common.core.page.TableDataInfo;
 import com.pcba.erp.pmm.entity.PmmWorkOrder;
 import com.pcba.erp.pmm.service.IPmmWorkOrderService;
+import com.pcba.erp.pmm.service.WorkInstructionService;
+import com.pcba.erp.pmm.entity.PmmWorkInstruction;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.ContentDisposition;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 import java.util.List;
 
@@ -22,6 +30,42 @@ import java.util.List;
 public class PmmWorkOrderController {
 
     private final IPmmWorkOrderService service;
+    private final WorkInstructionService instructionService;
+
+    @GetMapping("/{id}/instruction")
+    @PreAuthorize("@ps.hasPermi('pm:workorder:list')")
+    public R<PmmWorkInstruction> instruction(@PathVariable Long id) { return R.ok(instructionService.get(id)); }
+
+    @PutMapping("/{id}/instruction")
+    @PreAuthorize("@ps.hasPermi('pm:workorder:edit')")
+    @OperLog(title = "生产指令", businessType = 2)
+    public R<Void> saveInstruction(@PathVariable Long id, @Valid @RequestBody PmmWorkInstruction body) {
+        instructionService.save(id, body); return R.ok();
+    }
+
+    @GetMapping("/{id}/instruction/attachments")
+    @PreAuthorize("@ps.hasPermi('pm:workorder:list')")
+    public R<List<Map<String, Object>>> instructionAttachments(@PathVariable Long id) { return R.ok(instructionService.attachments(id)); }
+
+    @PostMapping("/{id}/instruction/attachments")
+    @PreAuthorize("@ps.hasPermi('pm:workorder:edit')")
+    @OperLog(title = "生产指令附件", businessType = 1)
+    public R<Map<String, Object>> uploadInstructionAttachment(@PathVariable Long id, @RequestParam String kind, @RequestParam MultipartFile file) {
+        return R.ok(instructionService.upload(id, kind, file));
+    }
+
+    @GetMapping("/{id}/instruction/attachments/{attachmentId}")
+    @PreAuthorize("@ps.hasPermi('pm:workorder:list')")
+    public void instructionAttachment(@PathVariable Long id, @PathVariable Long attachmentId, HttpServletResponse response) throws java.io.IOException {
+        Map<String, Object> attachment = instructionService.attachment(id, attachmentId);
+        boolean image = "IMAGE".equals(attachment.get("kind"));
+        response.setContentType((String) attachment.get("content_type"));
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("Cache-Control", "private, no-store");
+        response.setHeader("Content-Disposition", (image ? ContentDisposition.inline() : ContentDisposition.attachment())
+                .filename((String) attachment.get("file_name"), StandardCharsets.UTF_8).build().toString());
+        try (var stream = instructionService.open(attachment)) { stream.transferTo(response.getOutputStream()); }
+    }
 
     @Operation(summary = "工单分页查询")
     @PreAuthorize("@ps.hasPermi('pm:workorder:list')")

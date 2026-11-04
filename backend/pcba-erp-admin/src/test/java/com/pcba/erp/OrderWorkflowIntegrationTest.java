@@ -1,0 +1,239 @@
+package com.pcba.erp;
+
+import com.pcba.erp.common.exception.ServiceException;
+import com.pcba.erp.pdm.mapper.PdmMaterialMapper;
+import com.pcba.erp.pmm.entity.PmmWorkOrder;
+import com.pcba.erp.pmm.entity.PmmWorkInstruction;
+import com.pcba.erp.pmm.service.IPmmWorkOrderService;
+import com.pcba.erp.pmm.service.WorkInstructionService;
+import com.pcba.erp.scm.entity.ScmPurchaseRequisition;
+import com.pcba.erp.scm.entity.ScmPurchaseRequisitionLine;
+import com.pcba.erp.scm.service.IScmPurchaseRequisitionService;
+import com.pcba.erp.scm.service.IScmPurchaseRequisitionLineService;
+import com.pcba.erp.sal.entity.SalSalesOrder;
+import com.pcba.erp.sal.service.ISalSalesOrderService;
+import com.pcba.erp.wms.service.IWmsStockOutService;
+import com.pcba.erp.wms.service.IWmsInventoryService;
+import com.pcba.erp.wms.entity.WmsStockOut;
+import com.pcba.erp.wms.entity.WmsStockOutLine;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import static org.junit.jupiter.api.Assertions.*;
+
+@EnabledIfEnvironmentVariable(named = "PCBA_INTEGRATION_TESTS", matches = "true")
+@SpringBootTest(properties = {
+        "spring.datasource.url=jdbc:postgresql://127.0.0.1:55432/pcba_erp?stringtype=unspecified",
+        "spring.datasource.username=postgres", "spring.datasource.password=postgres-test-only",
+        "spring.data.redis.host=127.0.0.1", "spring.data.redis.port=56379", "spring.data.redis.password=redis-test-only",
+        "pcba.jwt.secret=postgres-integration-test-secret-at-least-32-bytes",
+        "pcba.bootstrap.admin-password=integration-admin-password-only"
+})
+class OrderWorkflowIntegrationTest {
+    @Autowired JdbcTemplate jdbc;
+    @Autowired org.mybatis.spring.SqlSessionTemplate sql;
+    @Autowired PdmMaterialMapper materials;
+    @Autowired IPmmWorkOrderService workOrders;
+    @Autowired WorkInstructionService instructions;
+    @Autowired IScmPurchaseRequisitionService requisitions;
+    @Autowired IScmPurchaseRequisitionLineService reqLines;
+    @Autowired ISalSalesOrderService sales;
+    @Autowired IWmsStockOutService stockOut;
+    @Autowired IWmsInventoryService inventory;
+
+    @Test @Transactional
+    void materialDuplicateCheckWorksForNewAndExistingMaterials() {
+        Long id = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id) VALUES ('TEST-WORKFLOW-MATERIAL', 'test', 1) RETURNING material_id", Long.class);
+        assertEquals(1, materials.countDuplicateCode("TEST-WORKFLOW-MATERIAL", null));
+        assertEquals(0, materials.countDuplicateCode("TEST-WORKFLOW-MATERIAL", id));
+        assertEquals(1, materials.countDuplicateCode("TEST-WORKFLOW-MATERIAL", id + 1));
+    }
+
+    @Test @Transactional
+    void workOrderGetsANumberAndRejectsMismatchedSalesLine() {
+        PmmWorkOrder order = new PmmWorkOrder();
+        order.setMaterialId(123L); order.setOrderQty(BigDecimal.TEN);
+        Long id = workOrders.save(order);
+        assertNotNull(id);
+        assertTrue(workOrders.getDetail(id).getOrderNo().startsWith("WO-"));
+        PmmWorkOrder invalid = new PmmWorkOrder();
+        invalid.setMaterialId(123L); invalid.setOrderQty(BigDecimal.ONE);
+        invalid.setSaleOrderId(999999L); invalid.setSaleOrderLineId(999999L);
+        assertThrows(ServiceException.class, () -> workOrders.save(invalid));
+    }
+
+    @Test @Transactional
+    void workOrderInheritsCustomerOrderAndFactoryFromValidatedReferences() {
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no, customer_id, customer_name, customer_order_no, so_date, status) VALUES ('TEST-WO-SO',1,'test customer','CLIENT-PO-TEST',CURRENT_DATE,2) RETURNING so_id", Long.class);
+        Long line = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,1,123,10,1) RETURNING line_id", Long.class, so);
+        Long factory = jdbc.queryForObject("INSERT INTO company_factory(parent_id,factory_code,factory_name,node_type,status) VALUES (0,'TEST-WO-FACTORY','test factory','FACTORY',0) RETURNING factory_id", Long.class);
+        PmmWorkOrder order = new PmmWorkOrder(); order.setMaterialId(123L); order.setOrderQty(BigDecimal.TEN);
+        order.setSaleOrderId(so); order.setSaleOrderLineId(line); order.setFactoryId(factory);
+        PmmWorkOrder saved = workOrders.getDetail(workOrders.save(order));
+        assertEquals("CLIENT-PO-TEST", saved.getCustomerOrderNo());
+        assertEquals("test factory", saved.getFactoryName());
+        assertEquals(1, workOrders.selectPage(1, 10, null, null, null, null, null, null, "CLIENT-PO-TEST").getTotal());
+    }
+
+    @Test @Transactional
+    void requisitionApprovalSynchronizesLinesAndCopyIsIndependent() {
+        ScmPurchaseRequisition req = new ScmPurchaseRequisition(); req.setTitle("workflow test");
+        Long id = requisitions.save(req);
+        ScmPurchaseRequisitionLine line = new ScmPurchaseRequisitionLine();
+        line.setRequisitionId(id); line.setMaterialId(123L); line.setQty(BigDecimal.TEN);
+        Long lineId = reqLines.save(line);
+        assertThrows(ServiceException.class, () -> requisitions.changeStatus(id, 2));
+        requisitions.changeStatus(id, 1);
+        assertEquals(1, reqLines.getDetail(lineId).getStatus());
+        assertThrows(ServiceException.class, () -> reqLines.remove(lineId));
+        requisitions.changeStatus(id, 2);
+        assertEquals(2, reqLines.getDetail(lineId).getStatus());
+        Long copyId = requisitions.copy(id);
+        assertNotEquals(id, copyId);
+        assertEquals(0, requisitions.getDetail(copyId).getStatus());
+        var copy = reqLines.selectPage(1, 10, copyId, null, null).getRecords().get(0);
+        assertEquals(0, copy.getStatus());
+        assertNull(copy.getConvertedPoId());
+        assertNotEquals(lineId, copy.getLineId());
+        assertEquals(2, reqLines.getDetail(lineId).getStatus());
+    }
+
+    @Test @Transactional
+    void salesOrderNumberIsShortAndCustomerReferencePersists() {
+        SalSalesOrder order = new SalSalesOrder();
+        order.setCustomerId(1L); order.setCustomerOrderNo("CUSTOMER-PO-42"); order.setSoDate(LocalDate.now());
+        Long id = sales.save(order);
+        SalSalesOrder saved = sales.getDetail(id);
+        assertTrue(saved.getSoNo().matches("SO\\d{10,}"));
+        assertEquals("CUSTOMER-PO-42", saved.getCustomerOrderNo());
+    }
+
+    @Test @Transactional
+    void requisitionConvertsRemainingQuantityAndMissingSupplierCanBeRetried() {
+        ScmPurchaseRequisition req = new ScmPurchaseRequisition(); req.setTitle("conversion test");
+        Long id = requisitions.save(req);
+        ScmPurchaseRequisitionLine line = new ScmPurchaseRequisitionLine();
+        line.setRequisitionId(id); line.setMaterialId(999998L); line.setQty(BigDecimal.TEN);
+        Long lineId = reqLines.save(line);
+        requisitions.changeStatus(id, 1); requisitions.changeStatus(id, 2);
+        Map<String, Object> noSupplier = requisitions.convertToPurchaseOrder(List.of(lineId), Map.of());
+        assertTrue(((List<?>) noSupplier.get("missingLineIds")).contains(lineId));
+        assertEquals(2, requisitions.getDetail(id).getStatus());
+        jdbc.update("INSERT INTO pdm_material_supplier(material_id, supplier_id, supplier_name, is_default, status) VALUES (999998, 123, 'test supplier', 1, 1)");
+        var partial = requisitions.convertToPurchaseOrder(List.of(lineId), Map.of("qtyOverrides", Map.of(lineId.toString(), 4)));
+        assertEquals(1, ((List<?>) partial.get("poIds")).size());
+        assertEquals(0, new BigDecimal("4").compareTo(reqLines.getDetail(lineId).getConvertedQty()));
+        var rest = requisitions.convertToPurchaseOrder(List.of(lineId), Map.of());
+        assertEquals(1, ((List<?>) rest.get("poIds")).size());
+        assertNotEquals(((List<?>) partial.get("poIds")).get(0), ((List<?>) rest.get("poIds")).get(0));
+        assertEquals(0, BigDecimal.TEN.compareTo(reqLines.getDetail(lineId).getConvertedQty()));
+        assertEquals(3, requisitions.getDetail(id).getStatus());
+    }
+
+    @Test @Transactional
+    void salesShipmentIsTraceableAndCannotExceedOrderQuantity() {
+        Long soId = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no, customer_id, customer_name, so_date, status) VALUES ('TEST-SHIPMENT', 1, 'test', CURRENT_DATE, 2) RETURNING so_id", Long.class);
+        Long lineId = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id, line_no, material_id, order_qty, unit_price) VALUES (?, 1, 987654, 10, 2) RETURNING line_id", Long.class, soId);
+        inventory.increaseInventory(90001L, 987654L, "", new BigDecimal("30"), "PCS");
+        WmsStockOut doc = new WmsStockOut(); doc.setWarehouseId(90001L); doc.setOutType("SALES"); doc.setCustomerId(1L); doc.setStatus(2);
+        WmsStockOutLine outLine = new WmsStockOutLine(); outLine.setSoId(soId); outLine.setSoLineId(lineId);
+        outLine.setMaterialId(987654L); outLine.setQuantity(new BigDecimal("6")); outLine.setBatchNo(""); outLine.setUnit("PCS");
+        doc.setLines(List.of(outLine));
+        Long first = stockOut.saveStockOut(doc);
+        assertTrue(stockOut.confirmStockOut(first));
+        assertEquals(0, new BigDecimal("6").compareTo(jdbc.queryForObject("SELECT shipped_qty FROM sal_sales_order_line WHERE line_id=?", BigDecimal.class, lineId)));
+        assertEquals(4, jdbc.queryForObject("SELECT status FROM sal_sales_order WHERE so_id=?", Integer.class, soId));
+        var page = stockOut.selectStockOutPage(1, 10, null, "TEST-SHIPMENT", null, "SALES", null);
+        assertEquals(first, page.getRecords().get(0).getStockOutId());
+        assertEquals("TEST-SHIPMENT", page.getRecords().get(0).getSaleOrderNos());
+        Long second = jdbc.queryForObject("INSERT INTO wms_stock_out(order_no, warehouse_id, out_type, customer_id, status) VALUES ('TEST-OUT-2',90001,'SALES',1,2) RETURNING stock_out_id", Long.class);
+        jdbc.update("INSERT INTO wms_stock_out_line(stock_out_id, so_id, so_line_id, material_id, quantity, batch_no, unit) VALUES (?, ?, ?, 987654, 6, '', 'PCS')", second, soId, lineId);
+        assertThrows(ServiceException.class, () -> stockOut.confirmStockOut(second));
+        assertEquals(0, new BigDecimal("6").compareTo(jdbc.queryForObject("SELECT shipped_qty FROM sal_sales_order_line WHERE line_id=?", BigDecimal.class, lineId)));
+    }
+
+    @Test @Transactional
+    void salesOrderGenerationRejectsPendingDocumentAndSupportsRemainingQuantity() {
+        Long soId = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no, customer_id, customer_name, so_date, status, warehouse_id) VALUES ('TEST-GENERATE-SHIP', 1, 'test', CURRENT_DATE, 2, 90001) RETURNING so_id", Long.class);
+        Long lineId = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id, line_no, material_id, order_qty, unit_price) VALUES (?, 1, 987655, 10, 2) RETURNING line_id", Long.class, soId);
+        Long first = sales.generateStockOut(soId);
+        assertThrows(ServiceException.class, () -> sales.generateStockOut(soId));
+        jdbc.update("UPDATE wms_stock_out SET status=3 WHERE stock_out_id=?", first);
+        jdbc.update("UPDATE sal_sales_order SET status=4 WHERE so_id=?", soId);
+        jdbc.update("UPDATE sal_sales_order_line SET shipped_qty=4 WHERE line_id=?", lineId);
+        sql.clearCache();
+        Long second = sales.generateStockOut(soId);
+        assertNotEquals(first, second);
+        assertEquals(0, new BigDecimal("6").compareTo(stockOut.getDetail(second).getLines().get(0).getQuantity()));
+    }
+
+    @Test @Transactional
+    void instructionPersistsPicturesFirmwareAndDetectsStaleOrForeignAttachments() {
+        PmmWorkOrder order = new PmmWorkOrder(); order.setMaterialId(123L); order.setOrderQty(BigDecimal.ONE);
+        Long id = workOrders.save(order);
+        Long image = jdbc.queryForObject("INSERT INTO pmm_work_instruction_attachment(work_order_id,file_name,object_key,content_type,file_size,kind) VALUES (?,'part.png','test/image','image/png',10,'IMAGE') RETURNING attachment_id", Long.class, id);
+        Long firmware = jdbc.queryForObject("INSERT INTO pmm_work_instruction_attachment(work_order_id,file_name,object_key,content_type,file_size,kind) VALUES (?,'firmware.bin','test/fw','application/octet-stream',10,'FIRMWARE') RETURNING attachment_id", Long.class, id);
+        PmmWorkInstruction instruction = instructions.get(id);
+        instruction.setBrandName("品牌"); instruction.setBluetoothName("BLE-001"); instruction.setFirmwareAttachmentId(firmware); instruction.setProductImageId(image);
+        PmmWorkInstruction.Item item = new PmmWorkInstruction.Item(); item.setName("透明盖"); item.setImageId(image); item.setDescription("按图安装");
+        instruction.setItems(List.of(item));
+        instructions.save(id, instruction);
+        var saved = instructions.get(id);
+        assertEquals(1, saved.getVersion()); assertEquals("BLE-001", saved.getBluetoothName());
+        assertEquals("按图安装", saved.getItems().get(0).getDescription());
+        assertEquals(firmware, saved.getFirmwareAttachmentId());
+        assertThrows(ServiceException.class, () -> instructions.save(id, instruction));
+        saved.setProductImageId(firmware);
+        assertThrows(ServiceException.class, () -> instructions.save(id, saved));
+    }
+
+    @Test
+    void concurrentSalesShipmentsCannotExceedOrderQuantity() throws Exception {
+        long token = System.nanoTime();
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,customer_name,so_date,status) VALUES (?,1,'test',CURRENT_DATE,2) RETURNING so_id", Long.class, "CONCURRENT-" + token);
+        Long line = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,1,?,10,1) RETURNING line_id", Long.class, so, token);
+        List<Long> docs = new ArrayList<>();
+        try {
+            inventory.increaseInventory(90001L, token, "", new BigDecimal("20"), "PCS");
+            for (int i=0; i<2; i++) {
+                Long doc = jdbc.queryForObject("INSERT INTO wms_stock_out(order_no,warehouse_id,out_type,customer_id,status) VALUES (?,90001,'SALES',1,2) RETURNING stock_out_id", Long.class, "CONCURRENT-OUT-" + token + "-" + i);
+                docs.add(doc);
+                jdbc.update("INSERT INTO wms_stock_out_line(stock_out_id,so_id,so_line_id,material_id,quantity,batch_no,unit) VALUES (?,?,?,?,7,'','PCS')", doc, so, line, token);
+            }
+            var executor = Executors.newFixedThreadPool(2);
+            int successes = 0;
+            try {
+                List<Future<Integer>> results = new ArrayList<>();
+                for (Long doc : docs) results.add(executor.submit(() -> {
+                    try { return stockOut.confirmStockOut(doc) ? 1 : 0; }
+                    catch (ServiceException expected) { return 0; }
+                }));
+                for (var result : results) successes += result.get();
+            } finally { executor.shutdownNow(); }
+            assertEquals(1, successes);
+            assertEquals(0, new BigDecimal("7").compareTo(jdbc.queryForObject("SELECT shipped_qty FROM sal_sales_order_line WHERE line_id=?", BigDecimal.class, line)));
+            assertEquals(0, new BigDecimal("13").compareTo(jdbc.queryForObject("SELECT quantity FROM wms_inventory WHERE warehouse_id=90001 AND material_id=?", BigDecimal.class, token)));
+        } finally {
+            for (Long doc : docs) {
+                jdbc.update("DELETE FROM sal_ar_receivable WHERE receivable_id IN (SELECT receivable_id FROM sal_ar_receivable_line WHERE stock_out_id=?)", doc);
+                jdbc.update("DELETE FROM sal_ar_receivable_line WHERE stock_out_id=?", doc);
+                jdbc.update("DELETE FROM wms_stock_out_line WHERE stock_out_id=?", doc);
+                jdbc.update("DELETE FROM wms_stock_out WHERE stock_out_id=?", doc);
+            }
+            jdbc.update("DELETE FROM wms_inventory WHERE warehouse_id=90001 AND material_id=?", token);
+            jdbc.update("DELETE FROM sal_sales_order_line WHERE so_id=?", so);
+            jdbc.update("DELETE FROM sal_sales_order WHERE so_id=?", so);
+        }
+    }
+}

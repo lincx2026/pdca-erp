@@ -13,6 +13,8 @@ public interface IScmPurchaseRequisitionService {
     boolean update(ScmPurchaseRequisition entity);
     boolean remove(Long id);
     boolean changeStatus(Long id, Integer status);
+    boolean reject(Long id, String reason);
+    Long copy(Long id);
     List<ScmPurchaseRequisition> options();
 
     /**

@@ -55,7 +55,7 @@ public interface PdmMaterialMapper extends BaseMapper<PdmMaterial> {
                                           @Param("dataScope") String dataScope);
 
     /** 物料编码全局唯一校验 */
-    @Select("SELECT COUNT(*) FROM pdm_material WHERE material_code = #{code} " +
-            "AND (#{materialId} IS NULL OR material_id != #{materialId})")
+    @Select("<script>SELECT COUNT(*) FROM pdm_material WHERE material_code = #{code} " +
+            "<if test='materialId != null'>AND material_id != #{materialId}</if></script>")
     int countDuplicateCode(@Param("code") String code, @Param("materialId") Long materialId);
 }

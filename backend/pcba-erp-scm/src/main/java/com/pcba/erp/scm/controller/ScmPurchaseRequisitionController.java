@@ -72,6 +72,12 @@ public class ScmPurchaseRequisitionController {
         return service.remove(id) ? R.ok(1) : R.fail("删除失败");
     }
 
+    @Operation(summary = "复制请购单及明细为草稿")
+    @PreAuthorize("@ps.hasPermi('scm:requisition:add')")
+    @OperLog(title = "复制请购单", businessType = 1)
+    @PostMapping("/{id}/copy")
+    public R<Long> copy(@PathVariable Long id) { return R.ok(service.copy(id)); }
+
     @Operation(summary = "提交")
     @PreAuthorize("@ps.hasPermi('scm:requisition:submit')")
     @OperLog(title = "提交", businessType = 2)
@@ -86,7 +92,11 @@ public class ScmPurchaseRequisitionController {
     @PreAuthorize("@ps.hasPermi('scm:requisition:reject')")
     @OperLog(title = "驳回", businessType = 2)
     @PutMapping("reject/{id}")
-    public R<Integer> reject(@PathVariable Long id) { return service.changeStatus(id, 4) ? R.ok(1) : R.fail("驳回失败"); }
+    public R<Integer> reject(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
+        String reason = body == null ? null : body.get("reason");
+        if (reason == null || reason.isBlank()) return R.fail("请填写驳回原因");
+        return service.reject(id, reason) ? R.ok(1) : R.fail("驳回失败");
+    }
     @Operation(summary = "转采购单")
     @PreAuthorize("@ps.hasPermi('scm:requisition:convert')")
     @OperLog(title = "转采购单", businessType = 2)

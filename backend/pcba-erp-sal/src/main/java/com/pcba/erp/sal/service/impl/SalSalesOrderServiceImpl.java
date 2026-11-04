@@ -57,16 +57,19 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long save(SalSalesOrder entity) {
+        entity.setSoId(null); entity.setStatus(0); entity.setStockOutId(null);
+        entity.setAuditBy(null); entity.setAuditTime(null); entity.setRejectReason(null);
         // 单号兜底
         try {
             Field f = SalSalesOrder.class.getDeclaredField("soNo");
             f.setAccessible(true);
             Object v = f.get(entity);
             if (v == null || v.toString().isBlank()) {
-                String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS"));
-                f.set(entity, "SO" + ts);
+                LocalDate today = LocalDate.now();
+                Long number = jdbcTemplate.queryForObject("INSERT INTO document_number_counter(document_type, number_date, last_number) VALUES ('SO', ?, 1) ON CONFLICT (document_type, number_date) DO UPDATE SET last_number = document_number_counter.last_number + 1 RETURNING last_number", Long.class, today);
+                f.set(entity, "SO" + today.format(DateTimeFormatter.ofPattern("yyMMdd")) + String.format("%04d", number));
             }
-        } catch (Exception ignore) {}
+        } catch (ReflectiveOperationException ex) { throw new ServiceException("生成销售订单号失败"); }
         // 订单日期
         try {
             Field f = SalSalesOrder.class.getDeclaredField("soDate");
@@ -195,10 +198,11 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
     @Transactional(rollbackFor = Exception.class)
     public Long generateStockOut(Long soId) {
         if (soId == null) throw new ServiceException("销售订单ID不能为空");
-        SalSalesOrder so = mapper.selectById(soId);
+        SalSalesOrder so = mapper.selectForUpdate(soId);
         if (so == null) throw new ServiceException("销售订单不存在");
-        if (so.getStockOutId() != null) throw new ServiceException("该销售订单已生成出库单(stockOutId=" + so.getStockOutId() + ")，不可重复生成");
-        if (so.getStatus() == null || so.getStatus() != 2) throw new ServiceException("仅已审核(状态2)的销售订单可生成出库单");
+        if (so.getStatus() == null || (so.getStatus() != 2 && so.getStatus() != 4)) throw new ServiceException("仅已审核或部分出库的销售订单可生成出库单");
+        Integer pending = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM wms_stock_out s WHERE s.status IN (0,1,2) AND EXISTS (SELECT 1 FROM wms_stock_out_line l WHERE l.stock_out_id=s.stock_out_id AND l.so_id=?)", Integer.class, soId);
+        if (pending != null && pending > 0) throw new ServiceException("订单已有未完成的出库单，请先处理");
 
         List<SalSalesOrderLine> lines = lineMapper.selectList(
                 new LambdaQueryWrapper<SalSalesOrderLine>()

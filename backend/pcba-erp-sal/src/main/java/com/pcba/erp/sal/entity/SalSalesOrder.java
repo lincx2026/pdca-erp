@@ -19,6 +19,7 @@ public class SalSalesOrder implements Serializable {
     @TableId(type = IdType.AUTO)
     private Long soId;
     @Size(max=50) private String soNo;
+    @Size(max=100) private String customerOrderNo;
     @Size(max=20) private String soType;
     /** 来源: MANUAL(手工建单) / FROM_PRICE(报价转单) / KITTING(由齐套生成的补充单) */
     @Size(max=20) private String sourceType;

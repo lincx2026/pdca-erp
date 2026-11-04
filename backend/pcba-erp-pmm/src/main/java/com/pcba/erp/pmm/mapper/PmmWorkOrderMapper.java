@@ -33,7 +33,7 @@ public interface PmmWorkOrderMapper extends BaseMapper<PmmWorkOrder> {
             "    AND work_center LIKE CONCAT('%', CAST(#{workCenter} AS TEXT), '%')" +
             "  </if>" +
             "  <if test='saleOrderNo != null and saleOrderNo != \"\"'>" +
-            "    AND sale_order_no LIKE CONCAT('%', CAST(#{saleOrderNo} AS TEXT), '%')" +
+            "    AND (sale_order_no LIKE CONCAT('%', CAST(#{saleOrderNo} AS TEXT), '%') OR customer_order_no LIKE CONCAT('%', CAST(#{saleOrderNo} AS TEXT), '%'))" +
             "  </if>" +
             "</where>" +
             " ORDER BY work_order_id DESC" +
@@ -47,7 +47,7 @@ public interface PmmWorkOrderMapper extends BaseMapper<PmmWorkOrder> {
                                    @Param("workCenter") String workCenter,
                                    @Param("saleOrderNo") String saleOrderNo);
 
-    @Select("SELECT COUNT(*) FROM pmm_work_order WHERE order_no = #{orderNo} " +
-            "AND (#{workOrderId} IS NULL OR work_order_id != #{workOrderId})")
+    @Select("<script>SELECT COUNT(*) FROM pmm_work_order WHERE order_no = #{orderNo} " +
+            "<if test='workOrderId != null'>AND work_order_id != #{workOrderId}</if></script>")
     int countDuplicate(@Param("orderNo") String orderNo, @Param("workOrderId") Long workOrderId);
 }

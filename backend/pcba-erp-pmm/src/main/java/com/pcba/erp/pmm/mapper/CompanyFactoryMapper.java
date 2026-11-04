@@ -19,8 +19,8 @@ public interface CompanyFactoryMapper extends BaseMapper<CompanyFactory> {
     List<CompanyFactory> selectAll();
 
     /** 检查编码重复(排除指定 ID) */
-    @Select("SELECT COUNT(*) FROM company_factory WHERE factory_code = #{factoryCode} " +
-            "AND (#{excludeId} IS NULL OR factory_id != #{excludeId})")
+    @Select("<script>SELECT COUNT(*) FROM company_factory WHERE factory_code = #{factoryCode} " +
+            "<if test='excludeId != null'>AND factory_id != #{excludeId}</if></script>")
     int countDuplicateCode(@Param("factoryCode") String factoryCode,
                            @Param("excludeId") Long excludeId);
 }

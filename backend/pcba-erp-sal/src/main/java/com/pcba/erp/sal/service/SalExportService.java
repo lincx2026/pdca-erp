@@ -50,7 +50,7 @@ public class SalExportService {
     public void exportOrders(OutputStream out, String soNo, String soType, Long customerId,
                              String customerName, Long salesRepId, Integer status, String deliveryDate) {
         LambdaQueryWrapper<SalSalesOrder> w = new LambdaQueryWrapper<>();
-        if (soNo != null && !soNo.isBlank()) w.like(SalSalesOrder::getSoNo, soNo);
+        if (soNo != null && !soNo.isBlank()) w.and(q -> q.like(SalSalesOrder::getSoNo, soNo).or().like(SalSalesOrder::getCustomerOrderNo, soNo));
         if (soType != null && !soType.isBlank()) w.eq(SalSalesOrder::getSoType, soType);
         if (customerId != null) w.eq(SalSalesOrder::getCustomerId, customerId);
         if (customerName != null && !customerName.isBlank()) w.like(SalSalesOrder::getCustomerName, customerName);
@@ -242,6 +242,7 @@ public class SalExportService {
     private SalSalesOrderExportVO toOrderVO(SalSalesOrder o) {
         SalSalesOrderExportVO v = new SalSalesOrderExportVO();
         v.setSoNo(o.getSoNo());
+        v.setCustomerOrderNo(o.getCustomerOrderNo());
         v.setSoType(o.getSoType());
         v.setCustomerCode(o.getCustomerCode());
         v.setCustomerName(o.getCustomerName());

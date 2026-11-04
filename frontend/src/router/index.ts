@@ -47,6 +47,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'wms/inventory',        name: 'Inventory', component: () => import('@/views/wms/inventory/index.vue'), meta: { title: '电子料库存', icon: 'Box',         perms: ['wms:inventory:list'] } },
       { path: 'wms/stock-in',         name: 'StockIn',   component: () => import('@/views/wms/stock-in/index.vue'),  meta: { title: '电子料入库', icon: 'Download',    perms: ['wms:stockin:list'] } },
       { path: 'wms/stock-out',        name: 'StockOut',  component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '电子料出库', icon: 'Upload',      perms: ['wms:stockout:list'] } },
+      { path: 'sal/stock-out',        name: 'SalesStockOut', component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '销售出库', icon: 'Upload', perms: ['wms:stockout:list'] } },
       //   成品仓库 (menu 1852): 只管成品整机 (第 1 期扩展: 完工入库单/成品出库单/流水)
       { path: 'fas/finished-inbound',  name: 'FinishedInbound',  component: () => import('@/views/fas/finished-inbound/index.vue'),  meta: { title: '完工入库单', icon: 'Download',   perms: ['wh:finished:inbound:list'] } },
       { path: 'fas/finished-outbound', name: 'FinishedOutbound', component: () => import('@/views/fas/finished-outbound/index.vue'), meta: { title: '成品出库单', icon: 'Upload',     perms: ['wh:finished:outbound:list'] } },

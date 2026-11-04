@@ -38,7 +38,7 @@ public interface WmsWarehouseMapper extends BaseMapper<WmsWarehouse> {
                                            @Param("status") Integer status);
 
     /** 仓库编码全局唯一校验 */
-    @Select("SELECT COUNT(*) FROM wms_warehouse WHERE warehouse_code = #{code} " +
-            "AND (#{warehouseId} IS NULL OR warehouse_id != #{warehouseId})")
+    @Select("<script>SELECT COUNT(*) FROM wms_warehouse WHERE warehouse_code = #{code} " +
+            "<if test='warehouseId != null'>AND warehouse_id != #{warehouseId}</if></script>")
     int countDuplicateCode(@Param("code") String code, @Param("warehouseId") Long warehouseId);
 }

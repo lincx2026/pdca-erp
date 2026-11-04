@@ -2,7 +2,7 @@
   <div class="page-sal-order">
     <!-- 搜索 -->
     <el-form :inline="true" :model="query" class="search-form" @submit.prevent>
-      <el-form-item label="订单号"><el-input v-model="query.soNo" placeholder="订单号" clearable style="width:180px" /></el-form-item>
+      <el-form-item label="订单号"><el-input v-model="query.soNo" placeholder="系统单号或客户订单号" clearable style="width:180px" /></el-form-item>
       <el-form-item label="客户">
         <el-select v-model="query.customerId" placeholder="输入编码/名称搜索" clearable filterable style="width:240px">
           <el-option v-for="c in customers" :key="c.customerId" :label="`${c.customerCode || ''} ${c.customerName} ${c.shortName || ''}`" :value="c.customerId" />
@@ -34,6 +34,7 @@
     <!-- 表格 -->
     <el-table v-loading="loading" :data="list" stripe border>
       <el-table-column prop="soNo" label="订单号" width="160" />
+      <el-table-column prop="customerOrderNo" label="客户订单号" width="160" show-overflow-tooltip />
       <el-table-column prop="soType" label="类型" width="90" />
       <el-table-column prop="customerName" label="客户" width="180" show-overflow-tooltip />
       <el-table-column prop="salesRepName" label="销售员" width="100" />
@@ -53,6 +54,7 @@
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
           <el-button v-hasPermi="'sal:order:list'" size="small" link @click="onView(row)">详情</el-button>
+          <el-button v-hasPermi="'wms:stockout:list'" size="small" link type="primary" @click="router.push({ path: '/sal/stock-out', query: { saleOrderNo: row.soNo } })">出库记录</el-button>
           <el-button v-if="canEdit(row)" v-hasPermi="'sal:order:edit'" size="small" link type="primary" @click="openDialog(row)">编辑</el-button>
           <el-button v-else size="small" link type="primary" disabled :title="cannotEditReason(row)">编辑</el-button>
           <el-popconfirm v-if="canRemove(row)" title="确认删除当前记录？" @confirm="onRemove(row)">
@@ -105,6 +107,7 @@
             <el-option v-for="o in fOpt_soType" :key="o.v" :label="o.l" :value="o.v" />
           </el-select>
         </el-form-item>
+        <el-form-item label="客户订单号"><el-input v-model="form.customerOrderNo" maxlength="100" clearable /></el-form-item>
         <el-form-item label="客户" required prop="customerId">
           <el-select v-model="form.customerId" placeholder="输入编码/名称/简称搜索" filterable style="width:100%" @change="onCustomerChange">
             <el-option v-for="c in customers" :key="c.customerId" :label="`${c.customerCode || ''} ${c.customerName} ${c.shortName || ''} ${c.contact || ''} ${c.phone || ''}`" :value="c.customerId">
@@ -286,6 +289,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, RefreshLeft, Plus, Download } from '@element-plus/icons-vue'
 import { salOrderApi, salCustomerApi, salPriceApi, salKittingApi, userApi, materialApi, type SalOrderListQ } from '@/api'
@@ -296,33 +300,35 @@ import { useUserStore } from '@/stores/user'
 defineOptions({ name: 'SalOrderPage' })
 
 const userStore = useUserStore()
+const router = useRouter()
 function hasPermission(p: string) { return hasPerm(p, userStore.userInfo?.permissions) }
 function hasPermOrThrow(p: string) { if (!hasPermission(p)) throw new Error('无此操作权限: ' + p); return true }
 
 // 状态机（单一判定源）
-// 0 草稿 1 提交 2 已审核 3 部分发货 4 全部发货 5 已完成 6 已驳回 9 取消
+// 0 草稿 1 提交 2 已审核 3 出库中 4 部分出库 5 全部出库 6 已完成 7 已驳回 9 取消
 const STATUS_LABEL: Record<number, { l: string; t?: string }> = {
   0: { l: '草稿', t: 'info' },
   1: { l: '已提交', t: 'warning' },
   2: { l: '已审核', t: 'primary' },
-  3: { l: '部分发货', t: 'warning' },
-  4: { l: '全部发货', t: '' },
-  5: { l: '已完成', t: 'success' },
-  6: { l: '已驳回', t: 'danger' },
+  3: { l: '出库中', t: 'warning' },
+  4: { l: '部分出库', t: 'warning' },
+  5: { l: '全部出库', t: 'success' },
+  6: { l: '已完成', t: 'success' },
+  7: { l: '已驳回', t: 'danger' },
   9: { l: '取消', t: 'info' }
 }
 const statusOpts = Object.entries(STATUS_LABEL).map(([v, m]) => ({ v: Number(v), l: m.l, t: m.t }))
 const statusMap = STATUS_LABEL
 
 const ACTION_DEF: Record<string, { label: string; type?: any; permission: string; allowFrom: number[]; disabledReason: (s: number) => string }> = {
-  submit:   { label: '提交',   type: 'default', permission: 'sal:order:submit',  allowFrom: [0, 6], disabledReason: (s) => `仅「草稿/驳回」可提交（当前:${STATUS_LABEL[s]?.l ?? s}）` },
+  submit:   { label: '提交',   type: 'default', permission: 'sal:order:submit',  allowFrom: [0, 7], disabledReason: (s) => `仅「草稿/驳回」可提交（当前:${STATUS_LABEL[s]?.l ?? s}）` },
   audit:    { label: '审核',   type: 'primary', permission: 'sal:order:audit',   allowFrom: [1],    disabledReason: (s) => `仅「已提交」可审核（当前:${STATUS_LABEL[s]?.l ?? s}）` },
-  stockOut: { label: '生成出库单', type: 'success', permission: 'sal:order:stockout', allowFrom: [2], disabledReason: (s) => `仅「已审核」可生成出库单（当前:${STATUS_LABEL[s]?.l ?? s}）` },
-  complete: { label: '完成',   type: 'default', permission: 'sal:order:complete', allowFrom: [4],   disabledReason: (s) => `仅「全部发货」可完成（当前:${STATUS_LABEL[s]?.l ?? s}）` },
+  stockOut: { label: '生成出库单', type: 'success', permission: 'sal:order:stockout', allowFrom: [2, 4], disabledReason: (s) => `仅「已审核/部分出库」可生成出库单（当前:${STATUS_LABEL[s]?.l ?? s}）` },
+  complete: { label: '完成',   type: 'default', permission: 'sal:order:close', allowFrom: [5],   disabledReason: (s) => `仅「全部出库」可完成（当前:${STATUS_LABEL[s]?.l ?? s}）` },
   reject:   { label: '驳回',   type: 'default', permission: 'sal:order:reject',  allowFrom: [1],    disabledReason: (s) => `仅「已提交」可驳回（当前:${STATUS_LABEL[s]?.l ?? s}）` },
-  cancel:   { label: '取消',   type: 'danger',  permission: 'sal:order:cancel',  allowFrom: [0, 1, 2, 6], disabledReason: (s) => `仅草稿/提交/审核/驳回可取消（当前:${STATUS_LABEL[s]?.l ?? s}）` }
+  cancel:   { label: '取消',   type: 'danger',  permission: 'sal:order:cancel',  allowFrom: [0, 1, 2, 7], disabledReason: (s) => `仅草稿/提交/审核/驳回可取消（当前:${STATUS_LABEL[s]?.l ?? s}）` }
 }
-const EDITABLE_STATUS = new Set<number>([0, 6])
+const EDITABLE_STATUS = new Set<number>([0, 7])
 function canEdit(row: SalSalesOrder)  { return EDITABLE_STATUS.has(Number(row.status)) }
 function canRemove(row: SalSalesOrder){ return EDITABLE_STATUS.has(Number(row.status)) }
 function cannotEditReason(row: SalSalesOrder)   { return `仅「草稿/驳回」可编辑（当前:${STATUS_LABEL[row.status as number]?.l ?? row.status}）` }
@@ -436,14 +442,14 @@ const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
 const dialogTitle = computed(() => (form.soId ? (readonly.value ? '销售订单详情' : '编辑销售订单') : '新增销售订单'))
 const form = reactive<Partial<SalSalesOrder>>({
-  soNo: '', soType: '', customerId: undefined as any, customerCode: '', customerName: '',
+  soNo: '', customerOrderNo: '', soType: '', customerId: undefined as any, customerCode: '', customerName: '',
   contactName: '', contactPhone: '', salesRepId: undefined,
   soDate: '', deliveryDate: '', currency: 'CNY', taxRate: 0.13,
   paymentTerm: '', remark: ''
 })
 function formDefaults() {
   Object.assign(form, {
-    soId: undefined, soNo: '', soType: '', customerId: undefined as any, customerCode: '', customerName: '',
+    soId: undefined, soNo: '', customerOrderNo: '', soType: '', customerId: undefined as any, customerCode: '', customerName: '',
     contactName: '', contactPhone: '', salesRepId: undefined,
     soDate: '', deliveryDate: '', currency: 'CNY', taxRate: 0.13,
     paymentTerm: '', remark: ''

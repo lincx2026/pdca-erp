@@ -14,7 +14,7 @@ public interface IWmsStockOutService extends IService<WmsStockOut> {
 
     /** 分页查询（联表回填仓库名称） */
     IPage<WmsStockOut> selectStockOutPage(int pageNum, int pageSize,
-                                          String orderNo, Long warehouseId,
+                                          String orderNo, String saleOrderNo, Long warehouseId,
                                           String outType, Integer status);
 
     /** 详情（含明细 lines） */

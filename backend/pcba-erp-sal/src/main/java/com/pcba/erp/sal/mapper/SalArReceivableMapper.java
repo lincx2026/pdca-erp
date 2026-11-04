@@ -32,7 +32,7 @@ public interface SalArReceivableMapper extends BaseMapper<SalArReceivable> {
                                       @Param("dueDate") String dueDate,
                                       @Param("isOverdue") Integer isOverdue);
 
-    @Select("SELECT COUNT(*) FROM sal_ar_receivable WHERE receivable_no = #{no} AND (#{id} IS NULL OR receivable_id <> #{id})")
+    @Select("<script>SELECT COUNT(*) FROM sal_ar_receivable WHERE receivable_no = #{no} <if test='id != null'>AND receivable_id &lt;&gt; #{id}</if></script>")
     long countDuplicate(@Param("no") String no, @Param("id") Long id);
 
     // --- 看板统计 ---

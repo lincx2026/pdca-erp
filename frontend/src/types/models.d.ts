@@ -397,6 +397,7 @@ export interface WmsStockOut {
   orderNo: string
   warehouseId: number
   outType: string
+  saleOrderNos?: string
   customerId?: number
   customerName?: string
   totalQty?: number
@@ -413,6 +414,8 @@ export interface WmsStockOut {
 export interface WmsStockOutLine {
   lineId?: number
   stockOutId?: number
+  soId?: number
+  soLineId?: number
   materialId: number
   materialCode?: string
   materialName?: string
@@ -453,6 +456,11 @@ export interface PmmWorkOrder {
   customerId?: number
   customerName?: string
   saleOrderNo?: string
+  saleOrderId?: number
+  saleOrderLineId?: number
+  customerOrderNo?: string
+  factoryId?: number
+  factoryName?: string
   /** 0=草稿 10=已下发 20=生产中 30=暂停 40=完工 50=关闭 90=取消 */
   status?: number
   auditBy?: string
@@ -1390,6 +1398,7 @@ export interface SalCustomer {
 export interface SalSalesOrder {
   soId?: number
   soNo: string
+  customerOrderNo?: string
   soType?: string
   customerId: number
   customerCode?: string
