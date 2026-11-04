@@ -15,6 +15,16 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface PdmMaterialMapper extends BaseMapper<PdmMaterial> {
 
+    @Select("<script>SELECT m.* FROM pdm_material m WHERE 1=1 " +
+            "<if test='keyword != null and keyword != &quot;&quot;'> AND (" +
+            "LOWER(m.material_code) LIKE CONCAT('%', LOWER(#{keyword}), '%') OR " +
+            "LOWER(m.material_name) LIKE CONCAT('%', LOWER(#{keyword}), '%') OR " +
+            "LOWER(m.specification) LIKE CONCAT('%', LOWER(#{keyword}), '%') OR " +
+            "LOWER(m.search_keywords) LIKE CONCAT('%', LOWER(#{keyword}), '%')) </if> " +
+            " ${dataScope} ORDER BY m.material_id DESC</script>")
+    IPage<PdmMaterial> searchMaterials(Page<PdmMaterial> page, @Param("keyword") String keyword,
+                                       @Param("dataScope") String dataScope);
+
     /**
      * 分页查询 + 关联分类名称 + 数据范围
      */

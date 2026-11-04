@@ -101,6 +101,14 @@ public class PdmMaterialServiceImpl implements IPdmMaterialService {
 
     @Override
     @DataScope(deptField = "m.category_id", userField = "m.create_by")
+    public IPage<PdmMaterial> searchMaterials(int pageNum, int pageSize, String keyword) {
+        String dataScope = DataScopeThreadLocal.getAndClear();
+        return materialMapper.searchMaterials(new Page<>(Math.max(1, pageNum), Math.min(100, Math.max(1, pageSize))),
+                keyword == null ? "" : keyword.trim(), dataScope);
+    }
+
+    @Override
+    @DataScope(deptField = "m.category_id", userField = "m.create_by")
     public IPage<PdmMaterial> selectMaterialPage(int pageNum, int pageSize,
                                                  Long categoryId, String materialCode,
                                                  String materialName, String materialType,
@@ -168,7 +176,7 @@ public class PdmMaterialServiceImpl implements IPdmMaterialService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean submitAudit(Long materialId) {
-        PdmMaterial m = requireStatus(materialId, 0, 4); // 草稿 / 已驳回 可提交
+        PdmMaterial m = requireStatus(materialId, 0, 3, 4); // 草稿、已停用或已驳回可提交
         m.setStatus(1);
         m.setRejectReason(null);
         return materialMapper.updateById(m) > 0;

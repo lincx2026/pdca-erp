@@ -8,6 +8,8 @@ import com.pcba.erp.pdm.entity.PdmMaterial;
 import com.pcba.erp.pdm.service.IPdmMaterialService;
 import com.pcba.erp.scm.entity.ScmPurchaseRequisition;
 import com.pcba.erp.scm.entity.ScmPurchaseRequisitionLine;
+import com.pcba.erp.scm.entity.ScmSupplierPrice;
+import com.pcba.erp.scm.mapper.ScmSupplierPriceMapper;
 import com.pcba.erp.scm.mapper.ScmPurchaseRequisitionLineMapper;
 import com.pcba.erp.scm.mapper.ScmPurchaseRequisitionMapper;
 import com.pcba.erp.scm.service.IScmPurchaseRequisitionLineService;
@@ -28,6 +30,65 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
     private final ScmPurchaseRequisitionLineMapper mapper;
     private final IPdmMaterialService materialService;
     private final ScmPurchaseRequisitionMapper requisitionMapper;
+    private final ScmSupplierPriceMapper priceMapper;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<Long> saveBatch(List<ScmPurchaseRequisitionLine> lines) {
+        if (lines == null || lines.isEmpty() || lines.size() > 100) throw new ServiceException("请选择1至100条物料");
+        Long requisitionId = lines.get(0).getRequisitionId();
+        if (requisitionId == null || lines.stream().anyMatch(line -> !requisitionId.equals(line.getRequisitionId())))
+            throw new ServiceException("批量明细必须属于同一请购单");
+        return lines.stream().map(this::save).toList();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void refreshEstimates(Long requisitionId) {
+        requireEditable(requisitionId);
+        List<ScmPurchaseRequisitionLine> lines = mapper.selectList(new LambdaQueryWrapper<ScmPurchaseRequisitionLine>()
+                .eq(ScmPurchaseRequisitionLine::getRequisitionId, requisitionId));
+        for (ScmPurchaseRequisitionLine line : lines) {
+            applyEstimate(line);
+            mapper.updateById(line);
+        }
+        recomputeHeader(requisitionId);
+    }
+
+    @Override
+    public ScmPurchaseRequisitionLine estimate(Long materialId, Long supplierId, BigDecimal qty) {
+        if (materialId == null || qty == null || qty.signum() <= 0) throw new ServiceException("请选择物料并填写大于零的数量");
+        PdmMaterial material = materialService.getById(materialId);
+        if (material == null) throw new ServiceException("物料不存在");
+        var query = new LambdaQueryWrapper<ScmSupplierPrice>()
+                .eq(ScmSupplierPrice::getMaterialId, materialId).eq(ScmSupplierPrice::getStatus, 2)
+                .le(ScmSupplierPrice::getValidFrom, java.time.LocalDate.now())
+                .ge(ScmSupplierPrice::getValidTo, java.time.LocalDate.now())
+                .le(ScmSupplierPrice::getMinQty, qty);
+        if (supplierId != null) query.eq(ScmSupplierPrice::getSupplierId, supplierId);
+        else query.eq(ScmSupplierPrice::getIsDefault, 1);
+        query.orderByDesc(ScmSupplierPrice::getMinQty).orderByDesc(ScmSupplierPrice::getValidFrom).orderByDesc(ScmSupplierPrice::getPriceId).last("LIMIT 1");
+        ScmSupplierPrice price = priceMapper.selectOne(query);
+        ScmPurchaseRequisitionLine result = new ScmPurchaseRequisitionLine();
+        result.setSupplierId(supplierId);
+        if (price != null && price.getUnitPrice() != null) {
+            result.setSupplierId(price.getSupplierId()); result.setSupplierPriceId(price.getPriceId());
+            result.setEstimatePrice(price.getUnitPrice()); result.setEstimateCurrency(price.getCurrency()); result.setEstimateSource("QUOTE");
+        } else if (material.getReferencePrice() != null) {
+            result.setEstimatePrice(material.getReferencePrice()); result.setEstimateCurrency("CNY"); result.setEstimateSource("REFERENCE");
+        } else {
+            result.setEstimatePrice(BigDecimal.ZERO); result.setEstimateCurrency("CNY"); result.setEstimateSource("MISSING");
+        }
+        result.setEstimateAmount(result.getEstimatePrice().multiply(qty));
+        return result;
+    }
+
+    private void applyEstimate(ScmPurchaseRequisitionLine line) {
+        ScmPurchaseRequisitionLine estimate = estimate(line.getMaterialId(), line.getSupplierId(), line.getQty());
+        line.setSupplierId(estimate.getSupplierId()); line.setSupplierPriceId(estimate.getSupplierPriceId());
+        line.setEstimatePrice(estimate.getEstimatePrice()); line.setEstimateAmount(estimate.getEstimateAmount());
+        line.setEstimateSource(estimate.getEstimateSource()); line.setEstimateCurrency(estimate.getEstimateCurrency());
+    }
 
     @Override
     public IPage<ScmPurchaseRequisitionLine> selectPage(int pageNum, int pageSize, Long requisitionId, String materialCode, String materialName) {
@@ -50,6 +111,7 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
         entity.setStatus(0); entity.setConvertedPoId(null); entity.setConvertedPoLineId(null); entity.setConvertedQty(BigDecimal.ZERO);
         // 物料回填
         fillMaterial(entity);
+        applyEstimate(entity);
         // lineNo 按主单递增
         if (entity.getLineNo() == null || entity.getLineNo() <= 0) {
             Integer max = null;
@@ -96,6 +158,9 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
         // 编辑时保持主键/主单/行号一致
         entity.setRequisitionId(old.getRequisitionId());
         if (entity.getLineNo() == null) entity.setLineNo(old.getLineNo());
+        if (entity.getMaterialId() == null) entity.setMaterialId(old.getMaterialId());
+        if (entity.getQty() == null) entity.setQty(old.getQty());
+        applyEstimate(entity);
         // 金额自动重算（当显式传了 qty 或 price）
         BigDecimal q = entity.getQty() != null ? entity.getQty() : old.getQty();
         BigDecimal p = entity.getEstimatePrice() != null ? entity.getEstimatePrice() : old.getEstimatePrice();
@@ -145,7 +210,7 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
     /* ========== 私有工具：物料回填 + 主单合计重算 ========== */
 
     private void requireEditable(Long id) {
-        ScmPurchaseRequisition header = requisitionMapper.selectById(id);
+        ScmPurchaseRequisition header = requisitionMapper.selectForUpdate(id);
         if (header == null || (!Integer.valueOf(0).equals(header.getStatus()) && !Integer.valueOf(4).equals(header.getStatus())))
             throw new ServiceException("仅草稿或已驳回的请购单可以修改明细");
     }
@@ -184,7 +249,7 @@ public class ScmPurchaseRequisitionLineServiceImpl implements IScmPurchaseRequis
         }
         if (header.getTotalAmount() == null || header.getTotalAmount().compareTo(totalAmount) != 0) {
             header.setTotalAmount(totalAmount);
-            try { requisitionMapper.updateById(header); } catch (Exception ignore) { log.warn("重算采购申请主单失败: {}", requisitionId); }
+            if (requisitionMapper.updateById(header) != 1) throw new ServiceException("重算请购单金额失败");
         }
     }
 }

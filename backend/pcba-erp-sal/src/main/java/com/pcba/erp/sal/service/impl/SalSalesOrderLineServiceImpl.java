@@ -29,6 +29,25 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
     private final ISalSalesOrderService orderService;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<Long> saveBatch(List<SalSalesOrderLine> lines) {
+        if (lines == null || lines.isEmpty() || lines.size() > 100) throw new ServiceException("请选择1至100条物料");
+        Long soId = lines.get(0).getSoId();
+        if (soId == null || lines.stream().anyMatch(line -> !soId.equals(line.getSoId()))) throw new ServiceException("明细必须属于同一销售订单");
+        SalSalesOrder order = orderService.getDetail(soId);
+        if (!Integer.valueOf(0).equals(order.getStatus()) && !Integer.valueOf(7).equals(order.getStatus())) throw new ServiceException("仅草稿或驳回订单可以新增明细");
+        for (SalSalesOrderLine line : lines) {
+            if (line.getMaterialId() == null || materialService.getById(line.getMaterialId()) == null || line.getOrderQty() == null || line.getOrderQty().signum() <= 0 || line.getUnitPrice() == null || line.getUnitPrice().signum() < 0)
+                throw new ServiceException("请选择有效物料并填写数量和单价");
+            line.setLineId(null); line.setLineNo(null); line.setShippedQty(BigDecimal.ZERO); line.setReturnedQty(BigDecimal.ZERO);
+            line.setMaterialCode(null); line.setMaterialName(null); line.setSpecification(null); line.setUnit(null);
+            line.setTaxRate(order.getTaxRate()); line.setDiscountRate(BigDecimal.ZERO);
+            line.setLineAmount(null); line.setTaxAmount(null);
+        }
+        return lines.stream().map(this::save).toList();
+    }
+
+    @Override
     public IPage<SalSalesOrderLine> selectPage(int pageNum, int pageSize, Long soId, String materialCode, String materialName) {
         return mapper.selectPage(new Page<>(pageNum, pageSize), soId, materialCode, materialName);
     }

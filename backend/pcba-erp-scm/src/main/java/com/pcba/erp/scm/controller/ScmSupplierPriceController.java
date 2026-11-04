@@ -35,9 +35,10 @@ public class ScmSupplierPriceController {
                                  @RequestParam(required = false) String materialName,
                                  @RequestParam(required = false) String supplierName,
                                  @RequestParam(required = false) String currency,
-                                 @RequestParam(required = false) Integer status) {
+                                 @RequestParam(required = false) Integer status,
+                                 @RequestParam(required = false) String keyword) {
         IPage<ScmSupplierPrice> page = service.selectGroupedPage(pageNum, pageSize, supplierId, materialId,
-                materialCode, materialName, supplierName, currency, status);
+                materialCode, materialName, supplierName, currency, status, keyword);
         TableDataInfo info = new TableDataInfo();
         info.setRows(page.getRecords()); info.setTotal(page.getTotal()); info.setCode(200); info.setMsg("查询成功");
         return R.ok(info);

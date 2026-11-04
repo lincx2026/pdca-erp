@@ -36,6 +36,14 @@ public class PdmMaterial implements Serializable {
     @Size(max = 500, message = "规格型号不超过500字符")
     private String specification;
 
+    /** 查询关键词和非正式参考价（人民币） */
+    @Size(max = 500)
+    private String searchKeywords;
+    @jakarta.validation.constraints.DecimalMin("0.0")
+    private BigDecimal referencePrice;
+    @Size(max = 200) private String referenceSupplierName;
+    @Size(max = 100) private String referenceSupplierPn;
+
     @NotNull(message = "分类ID不能为空")
     private Long categoryId;
 

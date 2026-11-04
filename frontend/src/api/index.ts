@@ -213,6 +213,7 @@ export interface MaterialListQ extends PageQ {
   status?: number
 }
 export const materialApi = {
+  search: (keyword = '', pageNum = 1, pageSize = 50) => request.get<{ rows: PdmMaterial[]; total: number }>('/pdm/material/search', { keyword, pageNum, pageSize }) as any,
   list:         (p: MaterialListQ)    => request.get<{ rows: PdmMaterial[]; total: number }>('/pdm/material/list', p) as any,
   get:          (id: number)          => request.get<PdmMaterial>('/pdm/material/' + id),
   add:          (d: Partial<PdmMaterial>) => request.post<number>('/pdm/material', d),
@@ -707,6 +708,9 @@ export const scmReqApi = {
   cancel:  (id: number) => request.put<number>('/scm/requisition/cancel/' + id),
   lines:   (requisitionId: number, pageNum = 1, pageSize = 200) => request.get<{ rows: ScmPurchaseRequisitionLine[]; total: number }>(`/scm/requisition/${requisitionId}/lines`, { pageNum, pageSize }) as any,
   addLine: (d: Partial<ScmPurchaseRequisitionLine>) => request.post<number>('/scm/requisition-line', d),
+  addLines: (lines: Partial<ScmPurchaseRequisitionLine>[]) => request.post<number[]>('/scm/requisition-line/batch', lines),
+  estimate: (materialId: number, qty: number, supplierId?: number) => request.get<any>('/scm/requisition-line/estimate', { materialId, qty, supplierId }),
+  refreshEstimates: (requisitionId: number) => request.put<number>('/scm/requisition-line/refresh-estimates/' + requisitionId),
   editLine:(d: Partial<ScmPurchaseRequisitionLine>) => request.put<number>('/scm/requisition-line', d),
   removeLine:(id: number) => request.delete<number>('/scm/requisition-line/' + id)
 }
@@ -806,6 +810,7 @@ export const scmReturnApi = {
 
 /** 供应商价格 */
 export interface ScmPriceListQ extends PageQ {
+  keyword?: string
   supplierId?: number
   materialId?: number
   materialCode?: string
@@ -1050,6 +1055,7 @@ export const salOrderApi = {
   // 行项
   lines:   (soId: number) => request.get<{ rows: SalSalesOrderLine[]; total: number }>('/sal/order-line/list', { soId, pageNum: 1, pageSize: 500 }) as any,
   addLine: (d: Partial<SalSalesOrderLine>) => request.post<number>('/sal/order-line', d),
+  addLines: (lines: Partial<SalSalesOrderLine>[]) => request.post<number[]>('/sal/order-line/batch', lines),
   editLine:(d: Partial<SalSalesOrderLine>) => request.put<number>('/sal/order-line', d),
   removeLine:(id: number) => request.delete<number>('/sal/order-line/' + id),
   export:  (p: SalOrderListQ) => request.instance.get('/sal/export/orders', { params: p, responseType: 'blob' }) as any

@@ -134,13 +134,15 @@
           </el-descriptions-item>
           <el-descriptions-item label="请购/需求日期">{{ linesOwner.requisitionDate || '-' }} / {{ linesOwner.requiredDate || '-' }}</el-descriptions-item>
           <el-descriptions-item label="申请人/部门">{{ linesOwner.applicantName || '-' }} / {{ linesOwner.deptName || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="总金额">{{ linesOwner.totalAmount == null ? '-' : '¥' + Number(linesOwner.totalAmount).toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="预计金额">{{ estimateTotals }}</el-descriptions-item>
         </el-descriptions>
       </div>
       <el-divider content-position="left">
         <span style="display:flex;align-items:center;gap:10px;">
           <span>请购明细行（共 {{ lines.length }} 行）</span>
           <el-button v-if="canEdit(linesOwner)" type="primary" size="small" @click="openLineDialog()">新增行</el-button>
+          <el-button v-if="canEdit(linesOwner)" size="small" @click="openBatchMaterials">批量选择物料</el-button>
+          <el-button v-if="canEdit(linesOwner) && lines.length" size="small" @click="previewRefreshEstimates">重新匹配价格</el-button>
         </span>
       </el-divider>
       <el-table v-loading="linesLoading" :data="lines" stripe border size="small" max-height="520">
@@ -153,6 +155,9 @@
         <el-table-column prop="qty" label="需求数量" width="100" align="right">
           <template #default="{ row }">{{ Number(row.qty||0).toLocaleString() }}</template>
         </el-table-column>
+        <el-table-column label="预计单价" width="130"><template #default="{ row }">{{ row.estimateSource === 'MISSING' || !row.estimateSource ? '未匹配' : `${row.estimateCurrency || ''} ${Number(row.estimatePrice).toFixed(4)}` }}</template></el-table-column>
+        <el-table-column label="预计金额" width="120"><template #default="{ row }">{{ row.estimateSource === 'MISSING' || !row.estimateSource ? '未匹配' : Number(row.estimateAmount).toFixed(2) }}</template></el-table-column>
+        <el-table-column label="价格来源" width="100"><template #default="{ row }">{{ row.estimateSource === 'QUOTE' ? '供应商报价' : row.estimateSource === 'REFERENCE' ? '参考价' : '未匹配' }}</template></el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag v-if="typeof row.status === 'number'" :type="lineStatusMap[row.status]?.t || ''">
@@ -184,8 +189,8 @@
     <el-dialog v-model="lineDialog" :title="lineDialogTitle" width="620px" destroy-on-close top="10vh">
       <el-form ref="lineFormRef" :model="lineForm" :rules="lineRules" label-width="100px">
         <el-form-item label="物料" prop="materialId">
-          <el-select v-model="lineForm.materialId" placeholder="输入编码/名称搜索" filterable style="width:100%" @change="onLineMaterialChange">
-            <el-option v-for="m in materialOptions" :key="m.materialId" :label="`${m.materialCode || ''} ${m.materialName}`" :value="m.materialId">
+          <el-select v-model="lineForm.materialId" placeholder="输入编码、名称、规格或关键词搜索" filterable remote reserve-keyword :remote-method="searchMaterials" style="width:100%" @change="onLineMaterialChange">
+            <el-option v-for="m in materialOptions" :key="m.materialId" :label="`${m.materialCode || ''} ${m.materialName} ${m.specification || ''} ${m.searchKeywords || ''}`" :value="m.materialId">
               <span style="float:left">{{ m.materialCode }} {{ m.materialName }}</span>
               <span style="float:right;color:#999;font-size:12px">{{ m.specification || '' }}</span>
             </el-option>
@@ -208,6 +213,7 @@
             </el-option>
           </el-select></el-form-item></el-col>
         </el-row>
+        <el-form-item label="预计价格"><span v-if="lineEstimateLoading">正在匹配报价…</span><span v-else-if="lineEstimate && lineEstimate.estimateSource !== 'MISSING'">{{ lineEstimate.estimateCurrency }} {{ Number(lineEstimate.estimatePrice).toFixed(4) }} × {{ lineForm.qty }} = {{ Number(lineEstimate.estimateAmount).toFixed(2) }}（{{ lineEstimate.estimateSource === 'QUOTE' ? '供应商报价' : '参考价' }}）</span><span v-else>未匹配价格</span></el-form-item>
         <el-form-item label="行需求日期"><el-date-picker v-model="lineForm.requiredDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="行备注"><el-input v-model="lineForm.remark" type="textarea" :rows="2" maxlength="200" /></el-form-item>
       </el-form>
@@ -215,6 +221,18 @@
         <el-button @click="lineDialog = false">取消</el-button>
         <el-button type="primary" :loading="lineSubmitLoading" @click="onLineSubmit">保存</el-button>
       </template>
+    </el-dialog>
+
+    <el-dialog v-model="batchDialog" title="批量选择物料" width="900px" destroy-on-close>
+      <el-input v-model="batchKeyword" placeholder="输入编码、名称、规格或关键词" clearable @keyup.enter="searchBatchMaterials"><template #append><el-button @click="searchBatchMaterials">查询</el-button></template></el-input>
+      <el-table :data="batchOptions" row-key="materialId" @selection-change="batchSelection = $event" max-height="360" border>
+        <el-table-column type="selection" width="50" :reserve-selection="true" />
+        <el-table-column prop="materialCode" label="编码" width="140" /><el-table-column prop="materialName" label="名称" />
+        <el-table-column prop="specification" label="规格" show-overflow-tooltip /><el-table-column prop="searchKeywords" label="关键词" show-overflow-tooltip />
+      </el-table>
+      <el-pagination v-model:current-page="batchPage" :page-size="50" :total="batchTotal" layout="total, prev, pager, next" @current-change="searchBatchMaterials" />
+      <div style="margin-top:12px">已选择 {{ batchSelection.length }} 项，统一数量 <el-input-number v-model="batchQty" :min="0.0001" :precision="4" /></div>
+      <template #footer><el-button @click="batchDialog = false">取消</el-button><el-button type="primary" :loading="batchSaving" :disabled="!batchSelection.length" @click="saveBatchMaterials">加入请购单</el-button></template>
     </el-dialog>
 
     <!-- ================ 生成安全库存短缺单 ================ -->
@@ -301,7 +319,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, getCurrentInstance } from 'vue'
+import { ref, reactive, computed, onMounted, getCurrentInstance, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Search, RefreshLeft, Plus, Download, Edit, Delete, Promotion,
@@ -380,13 +398,58 @@ async function loadOptions() {
   try {
     const [s, m, u] = await Promise.all([
       (async () => { try { const r = (await scmSupplierApi.options()) as any; return r?.data || r || [] } catch { return [] } })(),
-      (async () => { try { const r = (await materialApi.list({ pageNum: 1, pageSize: 1000 })) as any; return r?.rows || [] } catch { return [] } })(),
+      (async () => { try { const r = (await materialApi.search('')) as any; return r?.rows || [] } catch { return [] } })(),
       (async () => { try { const r = (await userApi.options()) as any; return r?.data || r || [] } catch { return [] } })()
     ])
     suppliers.value = Array.isArray(s) ? s : []
     materialOptions.value = Array.isArray(m) ? m : []
     userOptions.value = Array.isArray(u) ? u : []
   } catch { /* ignore */ }
+}
+let materialSearchSequence = 0
+async function searchMaterials(keyword: string) {
+  const sequence = ++materialSearchSequence
+  try {
+    const result = await materialApi.search(keyword) as any
+    if (sequence === materialSearchSequence) materialOptions.value = result?.rows || []
+  } catch { if (sequence === materialSearchSequence) ElMessage.error('物料搜索失败') }
+}
+
+const batchDialog = ref(false), batchSaving = ref(false), batchKeyword = ref(''), batchPage = ref(1), batchTotal = ref(0), batchQty = ref(1)
+const batchOptions = ref<any[]>([]), batchSelection = ref<any[]>([])
+async function searchBatchMaterials() {
+  try { const result = await materialApi.search(batchKeyword.value, batchPage.value, 50) as any; batchOptions.value = result?.rows || []; batchTotal.value = result?.total || 0 }
+  catch (e: any) { ElMessage.error(e?.message || '物料搜索失败') }
+}
+async function openBatchMaterials() {
+  batchKeyword.value = ''; batchPage.value = 1; batchQty.value = 1; batchSelection.value = []; batchDialog.value = true
+  await searchBatchMaterials()
+}
+async function saveBatchMaterials() {
+  if (!linesOwner.value?.requisitionId || !batchSelection.value.length || batchQty.value <= 0) return
+  batchSaving.value = true
+  try {
+    await scmReqApi.addLines(batchSelection.value.map(m => ({ requisitionId: linesOwner.value.requisitionId, materialId: m.materialId, qty: batchQty.value, requiredDate: linesOwner.value.requiredDate })))
+    batchDialog.value = false; ElMessage.success(`已新增 ${batchSelection.value.length} 行`)
+    await refreshLines()
+  } catch (e: any) { ElMessage.error(e?.message || '批量新增失败') }
+  finally { batchSaving.value = false }
+}
+async function refreshLines() {
+  const id = linesOwner.value?.requisitionId
+  if (!id) return
+  const detail: any = await scmReqApi.get(id)
+  await onViewLines(detail?.data || detail)
+  await loadList()
+}
+async function previewRefreshEstimates() {
+  try {
+    const estimates = await Promise.all(lines.value.map(async line => ({ line, estimate: await scmReqApi.estimate(line.materialId, Number(line.qty), line.supplierId) as any })))
+    const summary = estimates.map(({ line, estimate }) => `${line.materialCode}: ${estimate.estimateSource === 'MISSING' ? '未匹配' : `${estimate.estimateCurrency} ${Number(estimate.estimatePrice).toFixed(4)} (${estimate.estimateSource === 'QUOTE' ? '报价' : '参考价'})`}`).join('\n')
+    await ElMessageBox.confirm(`将重新计算草稿明细：\n${summary}`, '价格预览', { type: 'warning', customClass: 'preserve-newlines' })
+    await scmReqApi.refreshEstimates(linesOwner.value.requisitionId)
+    ElMessage.success('价格已重新匹配'); await refreshLines()
+  } catch (e: any) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '价格匹配失败') }
 }
 function onLineMaterialChange(val: any) {
   const m = materialOptions.value.find(x => x.materialId === val)
@@ -551,6 +614,18 @@ async function doReject(row: any) {
 const linesDialog = ref(false)
 const linesOwner = ref<any>(null)
 const lines = ref<any[]>([])
+const estimateTotals = computed(() => {
+  const totals: Record<string, number> = {}
+  let missing = 0
+  for (const row of lines.value) {
+    if (!row.estimateSource || row.estimateSource === 'MISSING') { missing++; continue }
+    const currency = row.estimateCurrency || 'CNY'
+    totals[currency] = (totals[currency] || 0) + Number(row.estimateAmount || 0)
+  }
+  const parts = Object.entries(totals).map(([currency, total]) => `${currency} ${total.toFixed(2)}`)
+  if (missing) parts.push(`${missing} 行未匹配价格`)
+  return parts.join('；') || '暂无明细'
+})
 const linesLoading = ref(false)
 const linesTitle = computed(() => `请购明细${linesOwner.value?.requisitionNo ? ' - ' + linesOwner.value.requisitionNo : ''}`)
 async function onViewLines(row: any) {
@@ -578,6 +653,18 @@ const lineForm = reactive<any>({
   materialId: undefined, materialCode: '', materialName: '', specification: '', unit: 'PCS',
   qty: 0, supplierId: undefined, convertedPoId: undefined, totalConverted: 0,
   requiredDate: '', remark: ''
+})
+const lineEstimate = ref<any>(null), lineEstimateLoading = ref(false)
+let estimateSequence = 0
+watch(() => [lineForm.materialId, lineForm.supplierId, lineForm.qty], async () => {
+  const sequence = ++estimateSequence
+  if (!lineForm.materialId || !(Number(lineForm.qty) > 0)) { lineEstimate.value = null; lineEstimateLoading.value = false; return }
+  lineEstimateLoading.value = true
+  try {
+    const result = await scmReqApi.estimate(lineForm.materialId, Number(lineForm.qty), lineForm.supplierId) as any
+    if (sequence === estimateSequence) lineEstimate.value = result
+  } catch { if (sequence === estimateSequence) lineEstimate.value = null }
+  finally { if (sequence === estimateSequence) lineEstimateLoading.value = false }
 })
 const lineRules: FormRules = {
   materialId: [{ required: true, message: '请选择物料', trigger: 'change' }],
@@ -616,7 +703,7 @@ async function onLineSubmit() {
     if (resp && (resp.code ?? 200) >= 400) throw new Error(resp.msg || '保存失败')
     proxy?.$modal?.msgSuccess?.(lineEditingId.value ? '修改行成功' : '新增行成功') || ElMessage.success(lineEditingId.value ? '修改行成功' : '新增行成功')
     lineDialog.value = false
-    await onViewLines(linesOwner.value!)
+    await refreshLines()
   } catch (e: any) {
     proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || '保存失败')
   } finally { lineSubmitLoading.value = false }
@@ -628,7 +715,7 @@ async function onRemoveLine(row: any) {
     if (proxy?.$request) resp = await proxy.$request('/scm/requisition/remove-line', 'POST', { lineId: row.lineId })
     else resp = await scmReqApi.removeLine(row.lineId)
     if (resp && (resp.code ?? 200) >= 400) throw new Error(resp.msg || '删除失败')
-    proxy?.$modal?.msgSuccess?.('删除成功') || ElMessage.success('删除成功'); await onViewLines(linesOwner.value!)
+    proxy?.$modal?.msgSuccess?.('删除成功') || ElMessage.success('删除成功'); await refreshLines()
   } catch (e: any) { proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || '删除失败') }
 }
 
@@ -684,7 +771,7 @@ async function submitConvert() {
   if (!canSubmitConvert.value) { ElMessage.warning('请完善公共头参数'); return }
   try {
     convertSubmitting.value = true
-    const lineIds: number[] = []
+    const convertLines: any[] = []
     for (const order of selection.value.filter((r: any) => Number(r.status) === 2)) {
       let page = 1, total = 0
       do {
@@ -692,15 +779,25 @@ async function submitConvert() {
         const data = result?.data || result
         const rows = data?.rows || []
         total = Number(data?.total || 0)
-        lineIds.push(...rows.filter((r: any) => Number(r.status) === 2).map((r: any) => r.lineId))
+        convertLines.push(...rows.filter((r: any) => Number(r.status) === 2))
         if (!rows.length) break
         page++
       } while ((page - 1) * 200 < total)
     }
-    if (!lineIds.length) { ElMessage.warning('所选单据没有可转采购的明细'); return }
+    if (!convertLines.length) { ElMessage.warning('所选单据没有可转采购的明细'); return }
+    const preview = await Promise.all(convertLines.map(async line => {
+      const qty = Number(line.qty) - Number(line.convertedQty || 0)
+      const estimate: any = await scmReqApi.estimate(line.materialId, qty, line.supplierId)
+      return { line, qty, estimate }
+    }))
+    const missing = preview.filter(item => item.estimate.estimateSource !== 'QUOTE')
+    if (missing.length) { ElMessage.warning(`${missing.map(item => item.line.materialCode).join('、')} 缺少适用的已审核报价，请先维护报价`); return }
+    const previewText = preview.map(({ line, qty, estimate }) => `${line.materialCode}  数量 ${qty}  供应商 ${suppliers.value.find(s => s.supplierId === estimate.supplierId)?.supplierName || estimate.supplierId}  ${estimate.estimateCurrency} ${Number(estimate.estimatePrice).toFixed(4)}  金额 ${Number(estimate.estimateAmount).toFixed(2)}`).join('\n')
+    await ElMessageBox.confirm(`请核对转单价格（提交时会重新校验）：\n${previewText}`, '转采购订单预览', { type: 'warning', customClass: 'preserve-newlines' })
 
     const resp = await scmReqApi.convertPurchaseOrder({
-      lineIds,
+      lineIds: convertLines.map(line => line.lineId),
+      expectedPrices: Object.fromEntries(preview.map(({ line, estimate }) => [String(line.lineId), { priceId: estimate.supplierPriceId, unitPrice: estimate.estimatePrice }])),
       paymentTerm: hd.paymentTerm,
       currency: hd.currency,
       taxRate: Number(hd.taxRate) || 0,
@@ -711,17 +808,17 @@ async function submitConvert() {
     if (resp && (resp.code ?? 200) >= 400) throw new Error(resp.msg || '批量转PO失败')
     const data = resp?.data || resp
     const warnings: any[] = data?.warnings || []
-    const missing: any[] = data?.missingLineIds || []
+    const missingLines: any[] = data?.missingLineIds || []
     const poIds: any[] = data?.poIds || (data?.poId ? [data.poId] : [])
     let msg = '批量转PO成功'
     if (poIds.length) msg += `，生成PO ${poIds.length} 个`
-    if (missing.length) msg += `，缺失字段行数=${missing.length}`
+    if (missingLines.length) msg += `，缺失字段行数=${missingLines.length}`
     if (warnings.length) msg += `，warnings=${warnings.length}`
     proxy?.$modal?.msgSuccess?.(msg) || ElMessage.success(msg)
-    if (missing.length || warnings.length) {
+    if (missingLines.length || warnings.length) {
       setTimeout(() => {
         ElMessageBox.alert(
-          '缺失供应商明细: ' + JSON.stringify(missing.slice(0, 30)) +
+          '缺失供应商明细: ' + JSON.stringify(missingLines.slice(0, 30)) +
           (warnings.length ? ('\n提示: ' + JSON.stringify(warnings.slice(0, 10))) : ''),
           '后端返回提示 (前30)',
           { type: 'warning' }
@@ -730,7 +827,7 @@ async function submitConvert() {
     }
     convertDlg.value = false; await loadList(1)
   } catch (e: any) {
-    proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || '批量转PO失败')
+    if (e !== 'cancel' && e !== 'close') proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || '批量转PO失败')
   } finally { convertSubmitting.value = false }
 }
 
@@ -749,4 +846,8 @@ onMounted(() => { loadOptions(); loadList() })
 .convert-form { background:#f5f7fa; padding: 12px 14px; border-radius:6px; }
 .badge { display:inline-block; min-width:18px; padding:0 6px; margin-left:6px; border-radius:9px; background:#67C23A; color:#fff; font-size:12px; text-align:center; line-height:18px; }
 .c-blue { color:#409EFF; font-weight:600; }
+</style>
+
+<style>
+.preserve-newlines .el-message-box__message { white-space: pre-line; max-height: 55vh; overflow: auto; }
 </style>

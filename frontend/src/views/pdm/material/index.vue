@@ -88,6 +88,8 @@
             </el-table-column>
             <el-table-column prop="materialName" label="物料名称" min-width="200" show-overflow-tooltip />
             <el-table-column prop="specification" label="规格型号" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="searchKeywords" label="查询关键词" min-width="150" show-overflow-tooltip />
+            <el-table-column label="参考单价(CNY)" width="130"><template #default="{ row }">{{ row.referencePrice == null ? '未设置' : Number(row.referencePrice).toFixed(4) }}</template></el-table-column>
             <el-table-column label="分类" width="140">
               <template #default="{ row }">
                 <el-tag size="small" v-if="row.categoryCode">{{ row.categoryCode }}</el-tag>
@@ -132,7 +134,8 @@
                            :disabled="row.status === 2" :title="row.status === 2 ? '已启用请先停用再修改' : ''">修改</el-button>
                 <el-button link size="small" type="warning" @click="submitAudit(row)"
                            v-if="canAudit"
-                           :disabled="row.status !== 0 && row.status !== 4">提交审核</el-button>
+                           :disabled="row.status !== 0 && row.status !== 3 && row.status !== 4">提交审核</el-button>
+                <el-button link size="small" type="warning" v-if="canEdit && row.status === 2" @click="disableMaterial(row)">停用</el-button>
                 <el-button link size="small" type="success" @click="auditPass(row)"
                            v-if="canAudit"
                            :disabled="row.status !== 1">通过</el-button>
@@ -217,6 +220,10 @@
                   <el-input v-model="form.specification" maxlength="500" show-word-limit placeholder="如: 0402 1KΩ ±1% 1/16W；要求完整可追溯的规格描述，用于 MPN + 品牌唯一识别" />
                 </el-form-item>
               </el-col>
+              <el-col :span="24"><el-form-item label="查询关键词"><el-input v-model="form.searchKeywords" maxlength="500" placeholder="例如 E27M自发电-A1" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="参考单价(CNY)"><el-input-number v-model="form.referencePrice" :min="0" :precision="4" controls-position="right" style="width:100%" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="参考供应商"><el-input v-model="form.referenceSupplierName" maxlength="200" placeholder="仅供参考，正式报价请在供应商价格维护" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="参考供应商料号"><el-input v-model="form.referenceSupplierPn" maxlength="100" /></el-form-item></el-col>
               <el-col :span="8">
                 <el-form-item label="计量单位">
                   <el-input v-model="form.unit" placeholder="PCS" />
@@ -1021,6 +1028,15 @@ async function openAdd() {
   if (supplierOptions.value.length === 0) loadSupplierOptions()
   if (materialOptions.value.length === 0) loadMaterialOptions()
   dlg.visible = true
+}
+
+async function disableMaterial(row: PdmMaterial) {
+  try {
+    await ElMessageBox.confirm(`停用物料 ${row.materialCode} 后可修改，修改后需重新提交审核。确认停用？`, '停用物料', { type: 'warning' })
+    await materialApi.disable(row.materialId)
+    ElMessage.success('已停用，可修改后重新提交审核')
+    await loadList()
+  } catch (e: any) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '停用失败') }
 }
 
 async function openEdit(row: PdmMaterial) {

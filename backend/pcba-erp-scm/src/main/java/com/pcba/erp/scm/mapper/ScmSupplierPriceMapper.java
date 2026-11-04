@@ -23,7 +23,7 @@ public interface ScmSupplierPriceMapper extends BaseMapper<ScmSupplierPrice> {
             "SELECT p.*, " +
             "       m.material_code AS \"materialCode\", " +
             "       m.material_name AS \"materialName\", " +
-            "       m.specification AS specification, " +
+            "       m.specification AS specification, m.search_keywords AS \"searchKeywords\", " +
             "       s.supplier_code AS \"supplierCode\", " +
             "       s.supplier_name AS \"supplierName\" " +
             "FROM scm_supplier_price p " +
@@ -81,6 +81,7 @@ public interface ScmSupplierPriceMapper extends BaseMapper<ScmSupplierPrice> {
             "    <if test='materialId != null'> AND p.material_id = #{materialId} </if>" +
             "    <if test=\"materialCode != null and materialCode != ''\"> AND m.material_code LIKE CONCAT('%', CAST(#{materialCode} AS TEXT), '%') </if>" +
             "    <if test=\"materialName != null and materialName != ''\"> AND m.material_name LIKE CONCAT('%', CAST(#{materialName} AS TEXT), '%') </if>" +
+            "  <if test=\"keyword != null and keyword != ''\"> AND LOWER(m.search_keywords) LIKE CONCAT('%', LOWER(#{keyword}), '%') </if>" +
             "    <if test=\"supplierName != null and supplierName != ''\"> AND s.supplier_name LIKE CONCAT('%', CAST(#{supplierName} AS TEXT), '%') </if>" +
             "    <if test=\"currency != null and currency != ''\"> AND p.currency LIKE CONCAT('%', CAST(#{currency} AS TEXT), '%') </if>" +
             "    <if test='status != null'> AND p.status = #{status} </if>" +
@@ -93,7 +94,7 @@ public interface ScmSupplierPriceMapper extends BaseMapper<ScmSupplierPrice> {
                               @Param("materialName") String materialName,
                               @Param("supplierName") String supplierName,
                               @Param("currency") String currency,
-                              @Param("status") Integer status);
+                              @Param("status") Integer status, @Param("keyword") String keyword);
 
     /** 取当前页的 distinct material_id 列表 (按 material_id 升序) */
     @Select("<script>" +
@@ -106,6 +107,7 @@ public interface ScmSupplierPriceMapper extends BaseMapper<ScmSupplierPrice> {
             "  <if test='materialId != null'> AND p.material_id = #{materialId} </if>" +
             "  <if test=\"materialCode != null and materialCode != ''\"> AND m.material_code LIKE CONCAT('%', CAST(#{materialCode} AS TEXT), '%') </if>" +
             "  <if test=\"materialName != null and materialName != ''\"> AND m.material_name LIKE CONCAT('%', CAST(#{materialName} AS TEXT), '%') </if>" +
+            "  <if test=\"keyword != null and keyword != ''\"> AND LOWER(m.search_keywords) LIKE CONCAT('%', LOWER(#{keyword}), '%') </if>" +
             "  <if test=\"supplierName != null and supplierName != ''\"> AND s.supplier_name LIKE CONCAT('%', CAST(#{supplierName} AS TEXT), '%') </if>" +
             "  <if test=\"currency != null and currency != ''\"> AND p.currency LIKE CONCAT('%', CAST(#{currency} AS TEXT), '%') </if>" +
             "  <if test='status != null'> AND p.status = #{status} </if>" +
@@ -121,14 +123,14 @@ public interface ScmSupplierPriceMapper extends BaseMapper<ScmSupplierPrice> {
                                      @Param("materialName") String materialName,
                                      @Param("supplierName") String supplierName,
                                      @Param("currency") String currency,
-                                     @Param("status") Integer status);
+                                     @Param("status") Integer status, @Param("keyword") String keyword);
 
     /** 取指定 material_id 集合的全部报价 (联表回填, 按物料→默认→单价排序) */
     @Select("<script>" +
             "SELECT p.*, " +
             "       m.material_code AS \"materialCode\", " +
             "       m.material_name AS \"materialName\", " +
-            "       m.specification AS specification, " +
+            "       m.specification AS specification, m.search_keywords AS \"searchKeywords\", " +
             "       s.supplier_code AS \"supplierCode\", " +
             "       s.supplier_name AS \"supplierName\" " +
             "FROM scm_supplier_price p " +

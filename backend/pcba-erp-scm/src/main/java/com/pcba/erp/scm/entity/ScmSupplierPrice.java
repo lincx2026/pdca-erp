@@ -38,6 +38,7 @@ public class ScmSupplierPrice implements Serializable {
     @Size(max=200) private String specification;
     @Size(max=20)  private String unit;
     /** P0回填：报价转成哪张采购订单 & 哪一行 */
+    @TableField(exist = false) private String searchKeywords;
     private Long poId;
     private Long poLineId;
 

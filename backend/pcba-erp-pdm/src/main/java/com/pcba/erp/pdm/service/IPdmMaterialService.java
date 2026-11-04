@@ -15,6 +15,8 @@ import java.util.List;
  */
 public interface IPdmMaterialService {
 
+    IPage<PdmMaterial> searchMaterials(int pageNum, int pageSize, String keyword);
+
     /** 分页查询 */
     IPage<PdmMaterial> selectMaterialPage(int pageNum, int pageSize,
                                            Long categoryId, String materialCode,

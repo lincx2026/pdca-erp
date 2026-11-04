@@ -11,7 +11,7 @@ public interface IScmSupplierPriceService {
                                        String currency, Integer status);
     IPage<ScmSupplierPrice> selectGroupedPage(int pageNum, int pageSize, Long supplierId, Long materialId,
                                                String materialCode, String materialName, String supplierName,
-                                               String currency, Integer status);
+                                               String currency, Integer status, String keyword);
     ScmSupplierPrice getDetail(Long id);
     Long save(ScmSupplierPrice entity);
     boolean update(ScmSupplierPrice entity);

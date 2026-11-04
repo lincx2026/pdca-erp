@@ -183,6 +183,7 @@
         <span style="display:flex; align-items:center; gap:10px;">
           <span>订单明细行（共 {{ lines.length }} 行）</span>
           <el-button type="primary" size="small" @click="openLineDialog()">新增行</el-button>
+          <el-button v-if="linesOwner && canEdit(linesOwner)" size="small" @click="openSalesBatch">批量选择物料</el-button>
         </span>
       </el-divider>
       <el-table v-loading="linesLoading" :data="lines" stripe border size="small" max-height="520">
@@ -226,11 +227,25 @@
       <template #footer><el-button @click="linesDialog = false">关闭</el-button></template>
     </el-dialog>
 
+    <el-dialog v-model="salesBatchDialog" title="批量选择销售物料" width="900px" destroy-on-close>
+      <el-input v-model="salesBatchKeyword" placeholder="输入编码、名称、规格或关键词" clearable @keyup.enter="searchSalesBatch"><template #append><el-button @click="searchSalesBatch">查询</el-button></template></el-input>
+      <el-table :data="salesBatchOptions" row-key="materialId" @selection-change="salesBatchSelection = $event" max-height="300" border>
+        <el-table-column type="selection" width="50" :reserve-selection="true" /><el-table-column prop="materialCode" label="编码" width="140" /><el-table-column prop="materialName" label="名称" />
+        <el-table-column prop="specification" label="规格" show-overflow-tooltip /><el-table-column prop="searchKeywords" label="关键词" show-overflow-tooltip />
+      </el-table>
+      <el-pagination v-model:current-page="salesBatchPage" :page-size="50" :total="salesBatchTotal" layout="total, prev, pager, next" @current-change="searchSalesBatch" />
+      <el-table :data="salesBatchSelection" max-height="260" border><el-table-column prop="materialCode" label="已选物料" /><el-table-column prop="materialName" label="名称" />
+        <el-table-column label="数量" width="190"><template #default="{ row }"><el-input-number v-model="row.batchQty" :min="0.0001" :precision="4" /></template></el-table-column>
+        <el-table-column label="销售单价" width="190"><template #default="{ row }"><el-input-number v-model="row.batchPrice" :min="0" :precision="4" placeholder="必填" /></template></el-table-column>
+      </el-table>
+      <template #footer><el-button @click="salesBatchDialog = false">取消</el-button><el-button type="primary" :loading="salesBatchSaving" :disabled="!salesBatchSelection.length" @click="saveSalesBatch">加入订单</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="lineDialog" :title="lineDialogTitle" width="600px" destroy-on-close top="10vh">
       <el-form ref="lineFormRef" :model="lineForm" :rules="lineRules" label-width="90px">
         <el-form-item label="物料" prop="materialId">
-          <el-select v-model="lineForm.materialId" placeholder="输入编码/名称搜索" filterable style="width:100%" @change="onLineMaterialChange">
-            <el-option v-for="m in materialOptions" :key="m.materialId" :label="`${m.materialCode || ''} ${m.materialName}`" :value="m.materialId">
+          <el-select v-model="lineForm.materialId" placeholder="输入编码、名称、规格或关键词搜索" filterable remote reserve-keyword :remote-method="searchMaterials" style="width:100%" @change="onLineMaterialChange">
+            <el-option v-for="m in materialOptions" :key="m.materialId" :label="`${m.materialCode || ''} ${m.materialName} ${m.specification || ''} ${m.searchKeywords || ''}`" :value="m.materialId">
               <span style="float:left">{{ m.materialCode }} {{ m.materialName }}</span>
               <span style="float:right;color:#999;font-size:12px">{{ m.specification || '' }}</span>
             </el-option>
@@ -396,6 +411,26 @@ const creditInfo = ref<any>(null)
 const creditLoading = ref(false)
 
 const materialOptions = ref<any[]>([])
+const salesBatchDialog = ref(false), salesBatchSaving = ref(false), salesBatchKeyword = ref(''), salesBatchPage = ref(1), salesBatchTotal = ref(0)
+const salesBatchOptions = ref<any[]>([]), salesBatchSelection = ref<any[]>([])
+async function searchSalesBatch() {
+  try { const result = await materialApi.search(salesBatchKeyword.value, salesBatchPage.value, 50) as any; salesBatchOptions.value = result?.rows || []; salesBatchTotal.value = result?.total || 0 }
+  catch (e: any) { ElMessage.error(e?.message || '物料搜索失败') }
+}
+async function openSalesBatch() {
+  salesBatchKeyword.value = ''; salesBatchPage.value = 1; salesBatchSelection.value = []; salesBatchDialog.value = true
+  await searchSalesBatch()
+}
+async function saveSalesBatch() {
+  if (!linesOwner.value?.soId) return
+  if (salesBatchSelection.value.some(m => !(Number(m.batchQty) > 0) || m.batchPrice == null || Number(m.batchPrice) < 0)) { ElMessage.warning('请为每项填写数量和销售单价'); return }
+  salesBatchSaving.value = true
+  try {
+    await salOrderApi.addLines(salesBatchSelection.value.map(m => ({ soId: linesOwner.value!.soId, materialId: m.materialId, orderQty: Number(m.batchQty), unitPrice: Number(m.batchPrice), requiredDate: linesOwner.value!.deliveryDate })))
+    salesBatchDialog.value = false; ElMessage.success('销售明细已新增'); await onViewLines(linesOwner.value)
+  } catch (e: any) { ElMessage.error(e?.message || '批量新增失败') }
+  finally { salesBatchSaving.value = false }
+}
 async function loadCustomers() {
   try {
     const [resp, u] = await Promise.all([
@@ -408,9 +443,17 @@ async function loadCustomers() {
 }
 async function loadMaterials() {
   try {
-    const m = await materialApi.list({ pageNum: 1, pageSize: 1000 }) as any
+    const m = await materialApi.search('') as any
     materialOptions.value = m?.rows || []
   } catch { /* ignore */ }
+}
+let materialSearchSequence = 0
+async function searchMaterials(keyword: string) {
+  const sequence = ++materialSearchSequence
+  try {
+    const result = await materialApi.search(keyword) as any
+    if (sequence === materialSearchSequence) materialOptions.value = result?.rows || []
+  } catch { if (sequence === materialSearchSequence) ElMessage.error('物料搜索失败') }
 }
 
 async function loadList(page?: number) {

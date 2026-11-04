@@ -4,6 +4,7 @@
     <el-form :inline="true" :model="query" class="search-form" @submit.prevent>
       <el-form-item label="物料编码"><el-input v-model="query.materialCode" placeholder="物料编码" clearable style="width:180px" @keyup.enter="loadList(1)" /></el-form-item>
       <el-form-item label="物料名称"><el-input v-model="query.materialName" placeholder="物料名称" clearable style="width:200px" @keyup.enter="loadList(1)" /></el-form-item>
+      <el-form-item label="查询关键词"><el-input v-model="query.keyword" placeholder="型号关键词" clearable @keyup.enter="loadList(1)" /></el-form-item>
       <el-form-item label="供应商名称"><el-input v-model="query.supplierName" placeholder="供应商名称" clearable style="width:200px" @keyup.enter="loadList(1)" /></el-form-item>
       <el-form-item label="币种"><el-input v-model="query.currency" placeholder="币种" clearable style="width:120px" /></el-form-item>
       <el-form-item label="状态">
@@ -46,6 +47,7 @@
             <div class="mat-code">{{ row.materialCode || ('#' + row.materialId) }}</div>
             <div class="mat-name">{{ row.materialName || '-' }}</div>
             <div class="mat-spec" v-if="row.specification">{{ row.specification }}</div>
+            <div class="mat-spec" v-if="row.searchKeywords">关键词：{{ row.searchKeywords }}</div>
           </div>
         </template>
       </el-table-column>
@@ -113,6 +115,7 @@
     <!-- 新增/编辑/详情 弹窗 -->
     <el-dialog v-model="dialog" :title="dialogTitle" width="680px" destroy-on-close>
       <el-form ref="formRef" :model="form" label-width="120px" :disabled="readonly">
+      <el-form-item v-if="form.materialId" label="查询关键词">{{ materialOptions.find(m => m.materialId === form.materialId)?.searchKeywords || '未设置' }}</el-form-item>
       <el-form-item label="物料" required prop="materialId">
         <el-select v-model="form.materialId" filterable remote reserve-keyword
                    :remote-method="searchMaterial" :loading="materialLoading"
@@ -473,7 +476,7 @@ async function loadList(page?: number) {
       materialName: query.materialName,
       supplierName: query.supplierName,
       currency: query.currency,
-      status: query.status
+      status: query.status, keyword: query.keyword || undefined
     })) as any
     list.value = (resp && resp.rows) || []
     total.value = (resp && Number(resp.total)) || 0
@@ -488,6 +491,7 @@ function resetQuery() {
   ;(query as any).materialId = undefined
   ;(query as any).materialCode = ''
   ;(query as any).materialName = ''
+  ;(query as any).keyword = ''
   ;(query as any).supplierName = ''
   ;(query as any).currency = ''
   ;(query as any).status = undefined
@@ -630,6 +634,7 @@ const form = reactive<Partial<ScmSupplierPrice>>({
 })
 
 function formDefaults() {
+  Object.keys(form).forEach(key => delete (form as any)[key])
   form.supplierId = undefined
   form.materialId = undefined
   form.currency = ''
@@ -655,13 +660,8 @@ async function searchMaterial(kw: string) {
   if (!kw) { materialOptions.value = []; return }
   materialLoading.value = true
   try {
-    const byName = await materialApi.list({ pageNum: 1, pageSize: 20, materialName: kw }) as any
-    const byCode = await materialApi.list({ pageNum: 1, pageSize: 20, materialCode: kw }) as any
-    const rows: PdmMaterial[] = [...((byName?.rows) || []), ...((byCode?.rows) || [])]
-    // 去重 (按 materialId)
-    const map = new Map<number, PdmMaterial>()
-    for (const m of rows) if (!map.has(m.materialId)) map.set(m.materialId, m)
-    materialOptions.value = Array.from(map.values()).slice(0, 30)
+    const result = await materialApi.search(kw) as any
+    materialOptions.value = result?.rows || []
   } catch { materialOptions.value = [] }
   finally { materialLoading.value = false }
 }

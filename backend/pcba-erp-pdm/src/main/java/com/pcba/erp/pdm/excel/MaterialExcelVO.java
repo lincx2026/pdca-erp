@@ -146,6 +146,10 @@ public class MaterialExcelVO implements Serializable {
     @ColumnWidth(22)
     private String procureScopeLabel;
 
+    @ExcelProperty(value = "查询关键词", index = 30)
+    @ColumnWidth(30)
+    private String searchKeywords;
+
     /* ================= 内部辅助（ExcelIgnore）================= */
     /** 导入：反解出的分类ID，成功则有值 */
     @ExcelIgnore

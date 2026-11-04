@@ -11,6 +11,9 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface ScmPurchaseRequisitionMapper extends BaseMapper<ScmPurchaseRequisition> {
 
+    @Select("SELECT * FROM scm_purchase_requisition WHERE requisition_id = #{id} FOR UPDATE")
+    ScmPurchaseRequisition selectForUpdate(@Param("id") Long id);
+
     @Select("<script>" +
             "SELECT * FROM scm_purchase_requisition " +
             "<where>" +

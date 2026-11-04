@@ -36,6 +36,18 @@ public class PdmMaterialController {
 
     private final IPdmMaterialService materialService;
 
+    @Operation(summary = "按编码、名称、规格或关键词搜索物料")
+    @PreAuthorize("@ps.hasAnyPermi('pdm:material:list', 'sal:order:list', 'scm:requisition:list', 'scm:price:list')")
+    @GetMapping("/search")
+    public R<TableDataInfo> search(@RequestParam(defaultValue = "1") int pageNum,
+                                   @RequestParam(defaultValue = "50") int pageSize,
+                                   @RequestParam(required = false) String keyword) {
+        IPage<PdmMaterial> page = materialService.searchMaterials(pageNum, pageSize, keyword);
+        TableDataInfo info = new TableDataInfo();
+        info.setRows(page.getRecords()); info.setTotal(page.getTotal()); info.setCode(200); info.setMsg("查询成功");
+        return R.ok(info);
+    }
+
     @Operation(summary = "物料分页查询 (左侧分类树筛选+条件查询)")
     @PreAuthorize("@ps.hasPermi('pdm:material:list')")
     @GetMapping("/list")

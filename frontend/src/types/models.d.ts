@@ -112,6 +112,10 @@ export interface PdmMaterialCategory {
 export type MaterialStatus = 0 | 1 | 2 | 3 | 4
 
 export interface PdmMaterial {
+  searchKeywords?: string
+  referencePrice?: number
+  referenceSupplierName?: string
+  referenceSupplierPn?: string
   materialId: number
   materialCode: string      // 编码规则 {categoryCode}-{YY}-{4位流水}
   materialName: string

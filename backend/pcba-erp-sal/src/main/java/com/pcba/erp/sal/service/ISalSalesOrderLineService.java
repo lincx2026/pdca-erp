@@ -9,6 +9,7 @@ public interface ISalSalesOrderLineService {
     IPage<SalSalesOrderLine> selectPage(int pageNum, int pageSize, Long soId, String materialCode, String materialName);
     SalSalesOrderLine getDetail(Long id);
     Long save(SalSalesOrderLine entity);
+    List<Long> saveBatch(List<SalSalesOrderLine> lines);
     boolean update(SalSalesOrderLine entity);
     boolean remove(Long id);
 

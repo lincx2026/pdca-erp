@@ -20,6 +20,11 @@ public class SalSalesOrderLineController {
 
     private final ISalSalesOrderLineService service;
 
+    @PreAuthorize("@ps.hasPermi('sal:orderline:add')")
+    @OperLog(title = "批量新增销售订单行", businessType = 1)
+    @PostMapping("/batch")
+    public R<java.util.List<Long>> addBatch(@RequestBody java.util.List<SalSalesOrderLine> lines) { return R.ok(service.saveBatch(lines)); }
+
     @Operation(summary = "分页查询")
     @PreAuthorize("@ps.hasPermi('sal:orderline:list')")
     @GetMapping("/list")

@@ -173,6 +173,10 @@ public class MaterialExcelConverter {
         v.setLeadTimeDays(m.getLeadTimeDays());
         v.setMoq(m.getMinOrderQty());
         v.setMpq(m.getMinPackageQty());
+        v.setRefPrice(m.getReferencePrice());
+        v.setDefaultSupplierName(m.getReferenceSupplierName());
+        v.setDefaultSupplierPn(m.getReferenceSupplierPn());
+        v.setSearchKeywords(m.getSearchKeywords());
         v.setStatusLabel(STATUS_REV.getOrDefault(m.getStatus(), "草稿"));
         v.setRemark(m.getRemark());
         v.setProcureScopeLabel(PROCURE_CODE_2_LABEL.getOrDefault(m.getProcureScope(), ""));
@@ -346,6 +350,9 @@ public class MaterialExcelConverter {
         if (v.getMoq() != null && v.getMoq().compareTo(BigDecimal.ZERO) < 0) sb.append("MOQ需≥0;");
         if (v.getMpq() != null && v.getMpq().compareTo(BigDecimal.ZERO) < 0) sb.append("MPQ需≥0;");
         if (v.getRefPrice() != null && v.getRefPrice().compareTo(BigDecimal.ZERO) < 0) sb.append("参考单价需≥0;");
+        if (v.getSearchKeywords() != null && v.getSearchKeywords().length() > 500) sb.append("查询关键词超长(500);");
+        if (v.getDefaultSupplierName() != null && v.getDefaultSupplierName().length() > 200) sb.append("默认供应商名称超长(200);");
+        if (v.getDefaultSupplierPn() != null && v.getDefaultSupplierPn().length() > 100) sb.append("默认供应商料号超长(100);");
         // 7 lossRate
         if (v.getLossRate() != null && (v.getLossRate().compareTo(BigDecimal.ZERO) < 0
                 || v.getLossRate().compareTo(new BigDecimal("100")) > 0))
@@ -387,6 +394,10 @@ public class MaterialExcelConverter {
         m.setLeadTimeDays(v.getLeadTimeDays());
         m.setMinOrderQty(v.getMoq());
         m.setMinPackageQty(v.getMpq());
+        m.setReferencePrice(v.getRefPrice());
+        m.setReferenceSupplierName(v.getDefaultSupplierName());
+        m.setReferenceSupplierPn(v.getDefaultSupplierPn());
+        m.setSearchKeywords(v.getSearchKeywords() == null ? null : v.getSearchKeywords().trim());
         m.setStatus(v.getStatus() == null ? 0 : v.getStatus());
         m.setRemark(v.getRemark() == null ? null : v.getRemark().trim());
         // 采购归属：validate 阶段已把 v.procureScope 写入（用户选或按分类推断）

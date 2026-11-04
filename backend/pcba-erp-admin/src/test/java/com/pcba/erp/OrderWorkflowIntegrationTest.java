@@ -49,6 +49,8 @@ class OrderWorkflowIntegrationTest {
     @Autowired IScmPurchaseRequisitionService requisitions;
     @Autowired IScmPurchaseRequisitionLineService reqLines;
     @Autowired ISalSalesOrderService sales;
+    @Autowired com.pcba.erp.scm.service.IScmSupplierPriceService supplierPrices;
+    @Autowired com.pcba.erp.sal.service.ISalSalesOrderLineService salesLines;
     @Autowired IWmsStockOutService stockOut;
     @Autowired IWmsInventoryService inventory;
 
@@ -88,10 +90,11 @@ class OrderWorkflowIntegrationTest {
 
     @Test @Transactional
     void requisitionApprovalSynchronizesLinesAndCopyIsIndependent() {
+        Long materialId = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id) VALUES ('TEST-REQ-APPROVAL', 'test', 1) RETURNING material_id", Long.class);
         ScmPurchaseRequisition req = new ScmPurchaseRequisition(); req.setTitle("workflow test");
         Long id = requisitions.save(req);
         ScmPurchaseRequisitionLine line = new ScmPurchaseRequisitionLine();
-        line.setRequisitionId(id); line.setMaterialId(123L); line.setQty(BigDecimal.TEN);
+        line.setRequisitionId(id); line.setMaterialId(materialId); line.setQty(BigDecimal.TEN);
         Long lineId = reqLines.save(line);
         assertThrows(ServiceException.class, () -> requisitions.changeStatus(id, 2));
         requisitions.changeStatus(id, 1);
@@ -121,16 +124,22 @@ class OrderWorkflowIntegrationTest {
 
     @Test @Transactional
     void requisitionConvertsRemainingQuantityAndMissingSupplierCanBeRetried() {
+        Long materialId = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id, reference_price, search_keywords) VALUES ('TEST-REQ-CONVERT', 'test', 1, 1.7, 'E27M-A1') RETURNING material_id", Long.class);
+        Long supplierId = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code, supplier_name) VALUES ('TEST-REQ-SUPPLIER', 'test supplier') RETURNING supplier_id", Long.class);
         ScmPurchaseRequisition req = new ScmPurchaseRequisition(); req.setTitle("conversion test");
         Long id = requisitions.save(req);
         ScmPurchaseRequisitionLine line = new ScmPurchaseRequisitionLine();
-        line.setRequisitionId(id); line.setMaterialId(999998L); line.setQty(BigDecimal.TEN);
+        line.setRequisitionId(id); line.setMaterialId(materialId); line.setQty(BigDecimal.TEN);
         Long lineId = reqLines.save(line);
+        assertEquals("REFERENCE", reqLines.getDetail(lineId).getEstimateSource());
+        assertEquals(0, new BigDecimal("17").compareTo(requisitions.getDetail(id).getTotalAmount()));
         requisitions.changeStatus(id, 1); requisitions.changeStatus(id, 2);
-        Map<String, Object> noSupplier = requisitions.convertToPurchaseOrder(List.of(lineId), Map.of());
-        assertTrue(((List<?>) noSupplier.get("missingLineIds")).contains(lineId));
+        assertThrows(ServiceException.class, () -> requisitions.convertToPurchaseOrder(List.of(lineId), Map.of()));
         assertEquals(2, requisitions.getDetail(id).getStatus());
-        jdbc.update("INSERT INTO pdm_material_supplier(material_id, supplier_id, supplier_name, is_default, status) VALUES (999998, 123, 'test supplier', 1, 1)");
+        jdbc.update("INSERT INTO scm_supplier_price(material_id, supplier_id, unit_price, min_qty, valid_from, valid_to, is_default, status) VALUES (?, ?, 2.2, 1, CURRENT_DATE-1, CURRENT_DATE+1, 1, 2)", materialId, supplierId);
+        assertEquals("QUOTE", reqLines.estimate(materialId, null, BigDecimal.TEN).getEstimateSource());
+        assertThrows(ServiceException.class, () -> requisitions.convertToPurchaseOrder(List.of(lineId), Map.of("expectedPrices", Map.of(lineId.toString(), Map.of("priceId", 99999, "unitPrice", 2.2)))));
+        assertEquals(0, BigDecimal.ZERO.compareTo(reqLines.getDetail(lineId).getConvertedQty()));
         var partial = requisitions.convertToPurchaseOrder(List.of(lineId), Map.of("qtyOverrides", Map.of(lineId.toString(), 4)));
         assertEquals(1, ((List<?>) partial.get("poIds")).size());
         assertEquals(0, new BigDecimal("4").compareTo(reqLines.getDetail(lineId).getConvertedQty()));
@@ -139,6 +148,60 @@ class OrderWorkflowIntegrationTest {
         assertNotEquals(((List<?>) partial.get("poIds")).get(0), ((List<?>) rest.get("poIds")).get(0));
         assertEquals(0, BigDecimal.TEN.compareTo(reqLines.getDetail(lineId).getConvertedQty()));
         assertEquals(3, requisitions.getDetail(id).getStatus());
+    }
+
+    @Test @Transactional
+    void keywordSearchAndPriceSnapshotsRespectQuantityAndMissingPrices() {
+        Long materialId = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id, reference_price, search_keywords) VALUES ('TEST-KEYWORD', 'test cable', 1, 1.7, 'E27M自发电-A1') RETURNING material_id", Long.class);
+        Long supplierId = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code, supplier_name) VALUES ('TEST-KEY-SUPPLIER', 'supplier') RETURNING supplier_id", Long.class);
+        assertTrue(materials.searchMaterials(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 50), "e27m", "").getRecords().stream().anyMatch(m -> m.getMaterialId().equals(materialId)));
+        jdbc.update("INSERT INTO scm_supplier_price(material_id, supplier_id, unit_price, min_qty, valid_from, valid_to, is_default, status) VALUES (?, ?, 3.14, 100, CURRENT_DATE-1, CURRENT_DATE+1, 1, 2)", materialId, supplierId);
+        assertTrue(supplierPrices.selectGroupedPage(1, 20, null, null, null, null, null, null, null, "e27m").getRecords().stream().anyMatch(p -> p.getMaterialId().equals(materialId) && "E27M自发电-A1".equals(p.getSearchKeywords())));
+        assertEquals("REFERENCE", reqLines.estimate(materialId, null, BigDecimal.TEN).getEstimateSource());
+        var quote = reqLines.estimate(materialId, null, new BigDecimal("100"));
+        assertEquals("QUOTE", quote.getEstimateSource());
+        assertEquals(0, new BigDecimal("314").compareTo(quote.getEstimateAmount()));
+        ScmPurchaseRequisition req = new ScmPurchaseRequisition(); req.setTitle("price snapshot");
+        Long reqId = requisitions.save(req);
+        ScmPurchaseRequisitionLine line = new ScmPurchaseRequisitionLine(); line.setRequisitionId(reqId); line.setMaterialId(materialId); line.setQty(new BigDecimal("100"));
+        Long lineId = reqLines.save(line);
+        assertEquals(0, new BigDecimal("314").compareTo(requisitions.getDetail(reqId).getTotalAmount()));
+        line = reqLines.getDetail(lineId); line.setQty(new BigDecimal("200")); reqLines.update(line);
+        assertEquals(0, new BigDecimal("628").compareTo(requisitions.getDetail(reqId).getTotalAmount()));
+    }
+
+    @Test @Transactional
+    void materialExcelPriceAndKeywordsRoundTripAndBatchSalesAreValidated() {
+        var input = new com.pcba.erp.pdm.excel.MaterialExcelVO();
+        input.setMaterialCode("TEST-EXCEL"); input.setMaterialName("test"); input.setCategoryId(1L);
+        input.setRefPrice(new BigDecimal("1.7000")); input.setSearchKeywords("E27M-A1"); input.setDefaultSupplierName("测试供应商"); input.setDefaultSupplierPn("ABC");
+        var material = com.pcba.erp.pdm.excel.MaterialExcelConverter.toEntity(input);
+        var output = com.pcba.erp.pdm.excel.MaterialExcelConverter.toVO(material, Map.of(1L, "test"));
+        assertEquals(input.getRefPrice(), output.getRefPrice()); assertEquals(input.getSearchKeywords(), output.getSearchKeywords());
+        assertEquals(input.getDefaultSupplierName(), output.getDefaultSupplierName()); assertEquals(input.getDefaultSupplierPn(), output.getDefaultSupplierPn());
+
+        Long mid = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id) VALUES ('TEST-SALES-BATCH', 'test', 1) RETURNING material_id", Long.class);
+        SalSalesOrder order = new SalSalesOrder(); order.setCustomerId(1L); order.setSoDate(LocalDate.now()); Long soId = sales.save(order);
+        var valid = new com.pcba.erp.sal.entity.SalSalesOrderLine(); valid.setSoId(soId); valid.setMaterialId(mid); valid.setOrderQty(BigDecimal.TEN); valid.setUnitPrice(BigDecimal.ONE);
+        var invalid = new com.pcba.erp.sal.entity.SalSalesOrderLine(); invalid.setSoId(soId); invalid.setMaterialId(mid); invalid.setOrderQty(BigDecimal.ZERO); invalid.setUnitPrice(BigDecimal.ONE);
+        assertThrows(ServiceException.class, () -> salesLines.saveBatch(List.of(valid, invalid)));
+        assertEquals(0, salesLines.selectPage(1, 10, soId, null, null).getTotal());
+        assertEquals(1, salesLines.saveBatch(List.of(valid)).size());
+    }
+
+    @Test @Transactional
+    void supplierQuotesRejectConflictsAndExplicitIds() {
+        Long mid = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id) VALUES ('TEST-QUOTE', 'test', 1) RETURNING material_id", Long.class);
+        Long sid = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code, supplier_name) VALUES ('TEST-QUOTE-SUPPLIER', 'supplier') RETURNING supplier_id", Long.class);
+        var quote = new com.pcba.erp.scm.entity.ScmSupplierPrice(); quote.setMaterialId(mid); quote.setSupplierId(sid); quote.setUnitPrice(BigDecimal.ONE);
+        quote.setMinQty(BigDecimal.ONE); quote.setValidFrom(LocalDate.now()); quote.setValidTo(LocalDate.now().plusDays(30));
+        Long id = supplierPrices.save(quote);
+        var duplicate = new com.pcba.erp.scm.entity.ScmSupplierPrice(); duplicate.setMaterialId(mid); duplicate.setSupplierId(sid); duplicate.setUnitPrice(BigDecimal.TEN);
+        duplicate.setMinQty(BigDecimal.ONE); duplicate.setValidFrom(LocalDate.now().plusDays(1)); duplicate.setValidTo(LocalDate.now().plusDays(31));
+        assertThrows(ServiceException.class, () -> supplierPrices.save(duplicate));
+        duplicate.setPriceId(id);
+        assertThrows(ServiceException.class, () -> supplierPrices.save(duplicate));
+        assertEquals(0, BigDecimal.ONE.compareTo(supplierPrices.getDetail(id).getUnitPrice()));
     }
 
     @Test @Transactional

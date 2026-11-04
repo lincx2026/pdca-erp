@@ -43,6 +43,22 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
     private final ScmPurchaseOrderLineMapper poLineMapper;
     @Lazy private final IScmPurchaseOrderLineService poLineService;
 
+    private void validateQuote(ScmSupplierPrice p) {
+        if (p.getMaterialId() == null || p.getSupplierId() == null || p.getUnitPrice() == null || p.getUnitPrice().signum() < 0
+                || p.getValidFrom() == null || p.getValidTo() == null || p.getValidFrom().isAfter(p.getValidTo()))
+            throw new ServiceException("请选择物料、供应商并填写非负单价及有效日期");
+        if (p.getMinQty() == null) p.setMinQty(BigDecimal.ZERO);
+        if (p.getMinQty().signum() < 0) throw new ServiceException("最小订购量不能为负");
+        if (p.getCurrency() == null || p.getCurrency().isBlank()) p.setCurrency("CNY");
+        List<Long> locked = jdbcTemplate.queryForList("SELECT material_id FROM pdm_material WHERE material_id=? FOR UPDATE", Long.class, p.getMaterialId());
+        if (locked.isEmpty()) throw new ServiceException("物料不存在");
+        if (p.getStatus() != null && (p.getStatus() == 3 || p.getStatus() == 4 || p.getStatus() == 5)) return;
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_supplier_price WHERE material_id=? AND supplier_id=? AND currency=? " +
+                "AND COALESCE(min_qty,0)=? AND status NOT IN (3,4,5) AND valid_from <= ? AND valid_to >= ? AND (CAST(? AS BIGINT) IS NULL OR price_id <> ?)",
+                Integer.class, p.getMaterialId(), p.getSupplierId(), p.getCurrency(), p.getMinQty(), p.getValidTo(), p.getValidFrom(), p.getPriceId(), p.getPriceId());
+        if (count != null && count > 0) throw new ServiceException("同一物料、供应商、币种和数量阶梯存在有效期重叠的报价");
+    }
+
     @Override
     public IPage<ScmSupplierPrice> selectPage(int pageNum, int pageSize, Long supplierId, Long materialId,
                                               String materialCode, String materialName, String supplierName,
@@ -54,14 +70,14 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
     @Override
     public IPage<ScmSupplierPrice> selectGroupedPage(int pageNum, int pageSize, Long supplierId, Long materialId,
                                                      String materialCode, String materialName, String supplierName,
-                                                     String currency, Integer status) {
+                                                     String currency, Integer status, String keyword) {
         int offset = Math.max(0, (pageNum - 1) * pageSize);
-        int total = mapper.countGroupedMaterials(supplierId, materialId, materialCode, materialName, supplierName, currency, status);
+        int total = mapper.countGroupedMaterials(supplierId, materialId, materialCode, materialName, supplierName, currency, status, keyword);
         Page<ScmSupplierPrice> page = new Page<>(pageNum, pageSize);
         page.setTotal(total);
         if (total == 0) { page.setRecords(new ArrayList<>()); return page; }
         List<Long> materialIds = mapper.selectMaterialIdsPage(offset, pageSize, supplierId, materialId,
-                materialCode, materialName, supplierName, currency, status);
+                materialCode, materialName, supplierName, currency, status, keyword);
         if (materialIds == null || materialIds.isEmpty()) { page.setRecords(new ArrayList<>()); return page; }
         page.setRecords(mapper.selectByMaterialIds(materialIds));
         return page;
@@ -116,6 +132,8 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long save(ScmSupplierPrice entity) {
+        if (entity.getPriceId() != null) throw new ServiceException("新增报价不能携带报价ID");
+        validateQuote(entity);
         try {
             Field noField = ScmSupplierPrice.class.getDeclaredField("priceId");
             noField.setAccessible(true);
@@ -167,6 +185,7 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
         if (id == null) throw new ServiceException("ID不能为空");
         ScmSupplierPrice old = mapper.selectById(id);
         if (old == null) throw new ServiceException("记录不存在");
+        validateQuote(entity);
         try {
             Field noField = ScmSupplierPrice.class.getDeclaredField("priceId");
             noField.setAccessible(true);
@@ -196,6 +215,7 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
         if (status == null) throw new ServiceException("状态值非法");
         ScmSupplierPrice r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
+        if (status == 1 || status == 2) { r.setStatus(status); validateQuote(r); }
         try {
             Field s = ScmSupplierPrice.class.getDeclaredField("status");
             s.setAccessible(true);
@@ -204,9 +224,9 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
         return mapper.updateById(r) > 0;
     }
 
-    @Override public boolean submit(Long id)  { return changeStatus(id, 1); }
-    @Override public boolean audit(Long id)   { return changeStatus(id, 2); }
-    @Override public boolean disable(Long id) { return changeStatus(id, 3); }
+    @Override @Transactional(rollbackFor = Exception.class) public boolean submit(Long id)  { return changeStatus(id, 1); }
+    @Override @Transactional(rollbackFor = Exception.class) public boolean audit(Long id)   { return changeStatus(id, 2); }
+    @Override @Transactional(rollbackFor = Exception.class) public boolean disable(Long id) { return changeStatus(id, 3); }
 
     @Override
     public List<ScmSupplierPrice> options() {

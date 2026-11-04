@@ -28,6 +28,8 @@ public class ScmPurchaseRequisitionLine implements Serializable {
     @NotNull private BigDecimal qty;
     private BigDecimal estimatePrice;
     private BigDecimal estimateAmount;
+    private String estimateSource;
+    private String estimateCurrency;
     private LocalDate requiredDate;
     private Long convertedPoId;
     private Long convertedPoLineId;
@@ -35,7 +37,7 @@ public class ScmPurchaseRequisitionLine implements Serializable {
     private Long supplierId;
     @Size(max=50) private String supplierCode;
     @Size(max=200) private String supplierName;
-    private Long supplierPriceId;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS) private Long supplierPriceId;
     /** 0草稿1提交2已审3已转完7供方缺失 */
     private Integer status = 0;
     @Size(max=1000) private String errorMsg;

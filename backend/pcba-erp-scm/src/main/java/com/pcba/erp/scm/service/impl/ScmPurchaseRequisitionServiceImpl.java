@@ -180,7 +180,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
     public boolean changeStatus(Long id, Integer status) {
         if (id == null) throw new ServiceException("ID不能为空");
         if (status == null) throw new ServiceException("状态值非法");
-        ScmPurchaseRequisition r = mapper.selectById(id);
+        ScmPurchaseRequisition r = mapper.selectForUpdate(id);
         if (r == null) throw new ServiceException("记录不存在");
         int current = r.getStatus() == null ? 0 : r.getStatus();
         boolean allowed = (status == 1 && (current == 0 || current == 4)) ||
@@ -506,10 +506,22 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             Long materialId = line.getMaterialId();
 
             // 默认供方
-            Map<String, Object> defaultSupplier = findDefaultSupplier(materialId);
-            Long supplierId = defaultSupplier == null ? null : (Long) defaultSupplier.get("supplierId");
-            String supplierCode = defaultSupplier == null ? null : (String) defaultSupplier.get("supplierCode");
-            String supplierName = defaultSupplier == null ? null : (String) defaultSupplier.get("supplierName");
+            BigDecimal alreadyConverted = line.getConvertedQty() == null ? BigDecimal.ZERO : line.getConvertedQty();
+            BigDecimal remaining = (line.getQty() == null ? BigDecimal.ZERO : line.getQty()).subtract(alreadyConverted);
+            BigDecimal qty = qtyOverrides.getOrDefault(lineId, remaining);
+            if (qty.signum() <= 0 || qty.compareTo(remaining) > 0) throw new ServiceException("请购行 " + lineId + " 转单数量超过未转数量");
+            ScmPurchaseRequisitionLine estimate = requisitionLineService.estimate(materialId, line.getSupplierId(), qty);
+            if (!"QUOTE".equals(estimate.getEstimateSource())) throw new ServiceException("物料 " + line.getMaterialCode() + " 未找到满足数量及有效期的已审核供应商报价，请先维护报价");
+            Long supplierId = estimate.getSupplierId();
+            String supplierCode = null;
+            String supplierName = null;
+            if (supplierId != null) {
+                List<Map<String, Object>> suppliers = jdbcTemplate.queryForList(
+                        "SELECT supplier_code, supplier_name FROM scm_supplier WHERE supplier_id = ?", supplierId);
+                if (suppliers.isEmpty()) throw new ServiceException("请购行供应商不存在: " + supplierId);
+                supplierCode = (String) suppliers.get(0).get("supplier_code");
+                supplierName = (String) suppliers.get(0).get("supplier_name");
+            }
 
             if (supplierId == null) {
                 line.setErrorMsg("无默认供方，先维护默认供");
@@ -523,23 +535,22 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
                     lineId, materialId, supplierId, supplierName);
 
             // 阶梯价匹配
-            BigDecimal alreadyConverted = line.getConvertedQty() == null ? BigDecimal.ZERO : line.getConvertedQty();
-            BigDecimal remaining = (line.getQty() == null ? BigDecimal.ZERO : line.getQty()).subtract(alreadyConverted);
-            BigDecimal qty = qtyOverrides.getOrDefault(lineId, remaining);
-            if (qty.signum() <= 0 || qty.compareTo(remaining) > 0) throw new ServiceException("请购行 " + lineId + " 转单数量超过未转数量");
-
             ScmSupplierPrice matchedPrice = matchSupplierPrice(supplierId, materialId, qty);
             BigDecimal unitPrice;
             Long priceId;
             if (matchedPrice == null) {
-                warnings.add("供方 " + supplierName + " 物料 " + line.getMaterialCode() + " 未找到生效阶梯价，采用 estimatePrice 或 0");
-                log.warn("[convertToPurchaseOrder] lineId={} supplierId={} materialId={} 未命中阶梯价", lineId, supplierId, materialId);
-                unitPrice = line.getEstimatePrice() == null ? BigDecimal.ZERO : line.getEstimatePrice();
-                priceId = null;
+                throw new ServiceException("物料 " + line.getMaterialCode() + " 未找到满足数量及有效期的已审核供应商报价，请先维护报价");
             } else {
                 unitPrice = matchedPrice.getUnitPrice() == null ? BigDecimal.ZERO : matchedPrice.getUnitPrice();
                 priceId = matchedPrice.getPriceId();
                 log.info("[convertToPurchaseOrder] 命中阶梯价 lineId={} priceId={} unitPrice={}", lineId, priceId, unitPrice);
+            }
+            if (hdr.get("expectedPrices") instanceof Map<?, ?> expected) {
+                Object value = expected.get(String.valueOf(lineId));
+                if (!(value instanceof Map<?, ?> item) || item.get("priceId") == null || item.get("unitPrice") == null
+                        || !String.valueOf(priceId).equals(String.valueOf(item.get("priceId")))
+                        || unitPrice.compareTo(new BigDecimal(String.valueOf(item.get("unitPrice")))) != 0)
+                    throw new ServiceException("物料 " + line.getMaterialCode() + " 的报价已变化，请重新预览后转单");
             }
 
             BigDecimal lineTaxRate = taxRateDefault;
@@ -780,7 +791,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
                     "SELECT * FROM scm_supplier_price WHERE supplier_id=? AND material_id=? AND status=2 " +
                             " AND (valid_from IS NULL OR valid_from <= ?) " +
                             " AND (valid_to IS NULL OR valid_to >= ?) " +
-                            "ORDER BY COALESCE(min_qty,0) ASC",
+                            "ORDER BY COALESCE(min_qty,0) ASC, valid_from ASC, price_id ASC FOR SHARE",
                     (rs, rn) -> {
                         ScmSupplierPrice p = new ScmSupplierPrice();
                         p.setPriceId(rs.getLong("price_id"));
@@ -809,11 +820,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             }
         }
         if (exact != null) return exact;
-        // fallback 最小 minQty 层（第1条 ASC）
-        ScmSupplierPrice fb = candidates.get(0);
-        log.info("[matchSupplierPrice] fallback 最小阶梯 supplierId={} materialId={} qty={} priceId={}",
-                supplierId, materialId, qty, fb.getPriceId());
-        return fb;
+        return null;
     }
 
     private Integer findMaterialQcRequired(Long materialId) {

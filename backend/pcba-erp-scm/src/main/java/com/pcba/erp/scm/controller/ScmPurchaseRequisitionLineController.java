@@ -23,6 +23,29 @@ public class ScmPurchaseRequisitionLineController {
 
     private final IScmPurchaseRequisitionLineService service;
 
+    @Operation(summary = "按物料、供应商及数量预估价格")
+    @PreAuthorize("@ps.hasPermi('scm:requisition:list')")
+    @GetMapping("/estimate")
+    public R<ScmPurchaseRequisitionLine> estimate(@RequestParam Long materialId,
+            @RequestParam(required = false) Long supplierId, @RequestParam java.math.BigDecimal qty) {
+        return R.ok(service.estimate(materialId, supplierId, qty));
+    }
+
+    @PreAuthorize("@ps.hasPermi('scm:requisitionline:add')")
+    @OperLog(title = "批量新增请购行", businessType = 1)
+    @PostMapping("/batch")
+    public R<List<Long>> addBatch(@RequestBody List<ScmPurchaseRequisitionLine> lines) {
+        return R.ok(service.saveBatch(lines));
+    }
+
+    @PreAuthorize("@ps.hasPermi('scm:requisitionline:edit')")
+    @OperLog(title = "刷新请购行价格", businessType = 2)
+    @PutMapping("/refresh-estimates/{requisitionId}")
+    public R<Integer> refreshEstimates(@PathVariable Long requisitionId) {
+        service.refreshEstimates(requisitionId);
+        return R.ok(1);
+    }
+
     @Operation(summary = "分页查询")
     @PreAuthorize("@ps.hasPermi('scm:requisitionline:list')")
     @GetMapping("/list")
