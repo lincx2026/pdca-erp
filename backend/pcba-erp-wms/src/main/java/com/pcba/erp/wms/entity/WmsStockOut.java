@@ -20,7 +20,9 @@ public class WmsStockOut implements Serializable {
 
     @TableId(type = IdType.AUTO)
     private Long stockOutId;
+    @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
     private java.time.LocalDateTime printedAt;
+    @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
     private String printedBy;
 
     /** 出库单号 */

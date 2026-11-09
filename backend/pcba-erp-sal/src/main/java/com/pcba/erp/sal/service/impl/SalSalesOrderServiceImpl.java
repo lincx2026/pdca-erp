@@ -40,7 +40,7 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
     private final IWmsStockOutService wmsStockOutService;
     private final JdbcTemplate jdbcTemplate;
     @Lazy private final ISalArReceivableService receivableService;
-    @Lazy private final com.pcba.erp.sal.service.ISalCustomerPriceService customerPrices;
+    private final org.springframework.beans.factory.ObjectProvider<com.pcba.erp.sal.service.ISalCustomerPriceService> customerPrices;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -62,7 +62,7 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
             line.setCreateBy(null); line.setCreateTime(null); line.setUpdateBy(null); line.setUpdateTime(null); line.setRequiredDate(deliveryDate);
             line.setPriceSource("COPY"); line.setCustomerPriceId(null);
             if (reprice) {
-                var quote = customerPrices.matchPrice(copy.getCustomerId(), line.getMaterialId(), line.getOrderQty(), copy.getSoDate());
+                var quote = customerPrices.getObject().matchPrice(copy.getCustomerId(), line.getMaterialId(), line.getOrderQty(), copy.getSoDate());
                 if (quote == null || !Objects.equals(quote.getCurrency(), copy.getCurrency())) throw new ServiceException("物料 " + line.getMaterialCode() + " 没有适用的客户报价，无法重新匹配");
                 line.setUnitPrice(quote.getUntaxedUnitPrice() == null ? quote.getUnitPrice() : quote.getUntaxedUnitPrice());
                 line.setTaxRate(quote.getTaxRate() == null ? BigDecimal.ZERO : quote.getTaxRate().divide(new BigDecimal("100")));

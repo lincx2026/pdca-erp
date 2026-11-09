@@ -193,5 +193,22 @@ const doPrint = () => {
 
 <style scoped>
 .print-page { background:#fff; }
-.a4-page { padding: 8px; }
+.a4-page { padding: 16px; margin: 12px auto; border: 1px solid #ddd; color: #222; font-size: 12px; position: relative; }
+.doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px double #222; padding-bottom: 8px; }
+.doc-header-left, .doc-header-right { width: 22%; }
+.doc-header-right { text-align: right; }
+.doc-header-center { text-align: center; flex: 1; }
+.company-name { font-size: 20px; font-weight: bold; }
+.doc-title { font-size: 16px; font-weight: bold; }
+.company-info, .doc-date { font-size: 10px; color: #666; }
+.logo-box { width: 60px; height: 60px; border: 1px solid #222; display: grid; place-items: center; }
+.watermark { position: absolute; top: 45%; left: 35%; transform: rotate(-30deg); color: rgba(150,150,150,.2); font-size: 60px; pointer-events: none; }
+.a4-content { position: relative; }
+.info-table, .data-table, .sign-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.info-table td, .data-table td, .data-table th, .sign-table td { border: 1px solid #aaa; padding: 5px; overflow-wrap: anywhere; }
+.data-table th { background: #2c3e50; color: white; }
+.info-table .label, .sign-label { background: #eef1f5; font-weight: bold; }
+.section-title { margin-top: 10px; font-weight: bold; border-left: 4px solid #222; padding-left: 6px; }
+.sign-blank { height: 40px; }
+.footer-note { display: flex; justify-content: space-between; margin-top: 10px; color: #666; }
 </style>

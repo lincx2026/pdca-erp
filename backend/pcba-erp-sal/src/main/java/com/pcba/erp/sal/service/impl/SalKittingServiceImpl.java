@@ -73,6 +73,7 @@ public class SalKittingServiceImpl implements ISalKittingService {
         if (matches == null || matches == 0) throw new ServiceException("销售BOM未启用或与订单客户、物料不匹配");
         SalSalesOrder order = salesOrderService.getDetail(entity.getSoId());
         entity.setCustomerId(order.getCustomerId());
+        entity.setCustomerName(order.getCustomerName());
         entity.setSoNo(order.getSoNo());
     }
 

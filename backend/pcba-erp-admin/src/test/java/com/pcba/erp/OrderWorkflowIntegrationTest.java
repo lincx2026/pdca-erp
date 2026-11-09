@@ -47,6 +47,7 @@ class OrderWorkflowIntegrationTest {
     @Autowired IPmmWorkOrderService workOrders;
     @Autowired WorkInstructionService instructions;
     @Autowired com.pcba.erp.pmm.service.IPmmWorkOrderBomService workBom;
+    @Autowired com.pcba.erp.sal.service.ISalKittingService kitting;
     @Autowired IScmPurchaseRequisitionService requisitions;
     @Autowired IScmPurchaseRequisitionLineService reqLines;
     @Autowired ISalSalesOrderService sales;
@@ -103,6 +104,20 @@ class OrderWorkflowIntegrationTest {
         assertEquals(0, new BigDecimal("1130").compareTo(sales.getDetail(copy).getTotalAmount()));
         line.setUnitPrice(new BigDecimal("1"));
         assertThrows(ServiceException.class, () -> salesLines.saveBatch(List.of(line)));
+    }
+
+    @Test @Transactional
+    void salesKittingOnlyOffersEnabledBomsForOrderMaterialAndCustomer() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-KIT-MAT','model',1) RETURNING material_id", Long.class);
+        SalSalesOrder order = new SalSalesOrder(); order.setCustomerId(1L); Long so = sales.save(order);
+        Long line = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,1,?,1,1) RETURNING line_id", Long.class, so, material);
+        Long bom = jdbc.queryForObject("INSERT INTO pdm_bom(bom_code,bom_name,product_material_id,bom_type,status,customer_id) VALUES ('TEST-KIT-BOM','test',?,3,2,1) RETURNING bom_id", Long.class, material);
+        assertEquals(1, kitting.bomOptions(so, line, "TEST-KIT").size());
+        var doc = new com.pcba.erp.sal.entity.SalKitting(); doc.setSoId(so); doc.setSoLineId(line); doc.setBomId(bom); doc.setKitQty(BigDecimal.ONE);
+        Long created = kitting.save(doc); assertEquals(1L, kitting.getDetail(created).getCustomerId());
+        jdbc.update("UPDATE pdm_bom SET status=3 WHERE bom_id=?", bom);
+        assertTrue(kitting.bomOptions(so, line, "").isEmpty());
+        assertThrows(ServiceException.class, () -> kitting.save(doc));
     }
 
     @Test @Transactional
