@@ -842,11 +842,11 @@ async function openViewById(id: number) {
 }
 async function submit() {
   const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!valid) { dlg.tab = 'base'; return }
   // 行项基本校验
   for (const l of lineRows.value) {
     if (!l.componentMaterialId || l.componentMaterialId <= 0) {
-      ElMessage.warning('行项存在未填写子件ID，请先填写或移除该行')
+      ElMessage.warning('请选择每行的子件物料，或移除未完成的行')
       dlg.tab = 'lines'
       return
     }
