@@ -161,6 +161,7 @@ export const bomApi = {
   nextCode: () => request.get<string>('/pdm/bom/next-code'),
   add:  (d: Partial<PdmBom>) => request.post<number>('/pdm/bom', d),
   edit: (d: Partial<PdmBom>) => request.put<number>('/pdm/bom', d),
+  editWithLines: (d: Partial<PdmBom>) => request.put<number>('/pdm/bom/with-lines', d),
   remove: (id: number) => request.delete<number>('/pdm/bom/' + id),
   replaceLines: (bomId: number, lines: PdmBomLine[]) =>
     request.put<number>('/pdm/bom/replace-lines/' + bomId, lines),
@@ -1074,7 +1075,7 @@ export interface SalKittingListQ extends PageQ {
   bomId?: number
 }
 export const salKittingApi = {
-  bomOptions: (soId: number, soLineId: number, keyword = '') => request.get<any[]>('/sal/kitting/bom-options', { soId, soLineId, keyword }),
+  bomOptions: (soId: number, soLineId?: number, keyword = '') => request.get<any[]>('/sal/kitting/bom-options', { soId, soLineId, keyword }),
   list:        (p: SalKittingListQ) => request.get<{ rows: SalKitting[]; total: number }>('/sal/kitting/list', p) as any,
   get:         (id: number) => request.get<SalKitting>('/sal/kitting/' + id),
   nextCode:    () => request.get<string>('/sal/kitting/next-code'),

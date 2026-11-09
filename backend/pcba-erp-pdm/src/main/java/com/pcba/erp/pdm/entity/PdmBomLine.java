@@ -29,7 +29,6 @@ public class PdmBomLine implements Serializable {
     private Integer lineNo;
 
     /** 父项物料ID（顶层=成品；多层BOM时中间层=半成品） */
-    @NotNull(message = "父项物料ID不能为空")
     private Long parentMaterialId;
 
     /** 子件物料ID */

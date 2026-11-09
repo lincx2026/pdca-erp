@@ -62,14 +62,16 @@ public class SalKittingServiceImpl implements ISalKittingService {
 
     @Override
     public List<Map<String, Object>> bomOptions(Long soId, Long soLineId, String keyword) {
-        if (soId == null || soLineId == null) return List.of();
+        if (soId == null) return List.of();
         String term = keyword == null ? "" : keyword.trim();
-        return jdbcTemplate.queryForList("SELECT b.bom_id AS \"bomId\", b.bom_code AS \"bomCode\", b.bom_name AS \"bomName\", b.version, b.kit_model AS \"kitModel\", b.product_material_id AS \"productMaterialId\", b.product_material_code AS \"productMaterialCode\", b.product_material_name AS \"productMaterialName\" FROM pdm_bom b JOIN sal_sales_order_line l ON l.material_id=b.product_material_id JOIN sal_sales_order s ON s.so_id=l.so_id WHERE s.so_id=? AND l.line_id=? AND b.bom_type=3 AND b.status=2 AND (b.customer_id IS NULL OR b.customer_id=s.customer_id) AND (LOWER(b.bom_code) LIKE ? OR LOWER(b.bom_name) LIKE ? OR LOWER(COALESCE(b.kit_model,'')) LIKE ?) ORDER BY b.is_default DESC, b.bom_id DESC LIMIT 100", soId, soLineId, "%" + term.toLowerCase(java.util.Locale.ROOT) + "%", "%" + term.toLowerCase(java.util.Locale.ROOT) + "%", "%" + term.toLowerCase(java.util.Locale.ROOT) + "%");
+        if (soLineId != null && jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sal_sales_order_line WHERE line_id=? AND so_id=?", Integer.class, soLineId, soId) == 0) throw new ServiceException("订单明细不属于所选订单");
+        return jdbcTemplate.queryForList("SELECT b.bom_id AS \"bomId\", b.bom_code AS \"bomCode\", b.bom_name AS \"bomName\", b.version, b.kit_model AS \"kitModel\", b.product_material_id AS \"productMaterialId\", b.product_material_code AS \"productMaterialCode\", b.product_material_name AS \"productMaterialName\" FROM pdm_bom b JOIN sal_sales_order s ON s.so_id=? WHERE b.bom_type=3 AND b.status=2 AND (b.customer_id IS NULL OR b.customer_id=s.customer_id) AND (b.effective_date IS NULL OR b.effective_date<=CURRENT_DATE) AND (b.expiry_date IS NULL OR b.expiry_date>=CURRENT_DATE) AND (b.product_material_id IS NULL OR CAST(? AS BIGINT) IS NULL OR EXISTS (SELECT 1 FROM sal_sales_order_line l WHERE l.so_id=s.so_id AND l.line_id=? AND l.material_id=b.product_material_id)) AND (LOWER(b.bom_code) LIKE ? OR LOWER(b.bom_name) LIKE ? OR LOWER(COALESCE(b.kit_model,'')) LIKE ?) ORDER BY b.is_default DESC, b.bom_id DESC LIMIT 100", soId, soLineId, soLineId, "%" + term.toLowerCase(java.util.Locale.ROOT) + "%", "%" + term.toLowerCase(java.util.Locale.ROOT) + "%", "%" + term.toLowerCase(java.util.Locale.ROOT) + "%");
     }
 
     private void validateOrderBom(SalKitting entity) {
-        if (entity.getSoId() == null || entity.getSoLineId() == null || entity.getBomId() == null) throw new ServiceException("请选择销售订单、订单明细和销售BOM");
-        Integer matches = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pdm_bom b JOIN sal_sales_order_line l ON l.material_id=b.product_material_id JOIN sal_sales_order s ON s.so_id=l.so_id WHERE s.so_id=? AND l.line_id=? AND b.bom_id=? AND b.bom_type=3 AND b.status=2 AND (b.customer_id IS NULL OR b.customer_id=s.customer_id)", Integer.class, entity.getSoId(), entity.getSoLineId(), entity.getBomId());
+        if (entity.getSoId() == null || entity.getBomId() == null) throw new ServiceException("请选择销售订单和销售BOM");
+        if (entity.getSoLineId() != null && jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sal_sales_order_line WHERE line_id=? AND so_id=?", Integer.class, entity.getSoLineId(), entity.getSoId()) == 0) throw new ServiceException("订单明细不属于所选订单");
+        Integer matches = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pdm_bom b JOIN sal_sales_order s ON s.so_id=? WHERE b.bom_id=? AND b.bom_type=3 AND b.status=2 AND (b.customer_id IS NULL OR b.customer_id=s.customer_id) AND (b.effective_date IS NULL OR b.effective_date<=CURRENT_DATE) AND (b.expiry_date IS NULL OR b.expiry_date>=CURRENT_DATE) AND (b.product_material_id IS NULL OR CAST(? AS BIGINT) IS NULL OR EXISTS (SELECT 1 FROM sal_sales_order_line l WHERE l.so_id=s.so_id AND l.line_id=? AND l.material_id=b.product_material_id))", Integer.class, entity.getSoId(), entity.getBomId(), entity.getSoLineId(), entity.getSoLineId());
         if (matches == null || matches == 0) throw new ServiceException("销售BOM未启用或与订单客户、物料不匹配");
         SalSalesOrder order = salesOrderService.getDetail(entity.getSoId());
         entity.setCustomerId(order.getCustomerId());
@@ -190,6 +192,7 @@ public class SalKittingServiceImpl implements ISalKittingService {
     @Transactional(rollbackFor = Exception.class)
     public boolean runKittingCheck(Long kittingId) {
         SalKitting k = requireStatus(kittingId, 0, 1, 5); // 待检查/部分齐套/已取消可重新检查
+        validateOrderBom(k);
 
         // 校验BOM
         PdmBom bom = bomService.getById(k.getBomId());
@@ -280,6 +283,7 @@ public class SalKittingServiceImpl implements ISalKittingService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long generateStockOut(Long kittingId) {
+        jdbcTemplate.queryForList("SELECT kitting_id FROM sal_kitting WHERE kitting_id=? FOR UPDATE", Long.class, kittingId);
         SalKitting k = requireStatus(kittingId, 2); // 齐套完成
         if (k.getStockOutId() != null) {
             throw new ServiceException("已生成出库单(stockOutId=" + k.getStockOutId() + ")，不可重复生成");
@@ -309,7 +313,12 @@ public class SalKittingServiceImpl implements ISalKittingService {
             if (line.getIsShortage() != null && line.getIsShortage() == 1) continue; // 跳过缺料行
             WmsStockOutLine sl = new WmsStockOutLine();
             sl.setSoId(k.getSoId());
-            sl.setSoLineId(k.getSoLineId());
+            List<Map<String, Object>> matches = jdbcTemplate.queryForList("SELECT line_id, order_qty, COALESCE(shipped_qty,0) AS shipped_qty FROM sal_sales_order_line WHERE so_id=? AND material_id=? ORDER BY line_id", k.getSoId(), line.getMaterialId());
+            if (matches.size() != 1) throw new ServiceException("物料 " + line.getMaterialCode() + " 在销售订单中没有唯一对应明细，请先调整订单");
+            Map<String, Object> matched = matches.get(0);
+            BigDecimal remaining = ((BigDecimal) matched.get("order_qty")).subtract((BigDecimal) matched.get("shipped_qty"));
+            if (line.getReqQty() == null || line.getReqQty().signum() <= 0 || remaining.compareTo(line.getReqQty()) < 0) throw new ServiceException("物料 " + line.getMaterialCode() + " 的齐套数量超过订单未出库数量");
+            sl.setSoLineId(((Number) matched.get("line_id")).longValue());
             sl.setMaterialId(line.getMaterialId());
             sl.setMaterialCode(line.getMaterialCode());
             sl.setMaterialName(line.getMaterialName());

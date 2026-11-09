@@ -86,6 +86,16 @@ public class PdmBomController {
         return bomService.update(bom) ? R.ok(1) : R.fail("修改失败");
     }
 
+    @PutMapping("/with-lines")
+    @PreAuthorize("@ps.hasPermi('pdm:bom:edit')")
+    @OperLog(title = "BOM管理", businessType = 2)
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public R<Integer> editWithLines(@RequestBody PdmBom bom) {
+        if (!bomService.update(bom)) throw new com.pcba.erp.common.exception.ServiceException("修改BOM失败");
+        if (!bomService.replaceLines(bom.getBomId(), bom.getLines())) throw new com.pcba.erp.common.exception.ServiceException("修改BOM行项失败");
+        return R.ok(1);
+    }
+
     @Operation(summary = "删除BOM（仅草稿/驳回可删，级联删除行项）")
     @PreAuthorize("@ps.hasPermi('pdm:bom:remove')")
     @OperLog(title = "BOM管理", businessType = 3)

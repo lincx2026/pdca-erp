@@ -49,9 +49,10 @@ public interface PdmBomLineMapper extends BaseMapper<PdmBomLine> {
                                @Param("bomStatus") Integer bomStatus);
 
     /** 某BOM下重复子件(同父项)计数 */
-    @Select("SELECT COUNT(*) FROM pdm_bom_line WHERE bom_id = #{bomId} " +
-            "AND parent_material_id = #{parentId} AND component_material_id = #{componentId} " +
-            "AND (#{excludeLineId} IS NULL OR line_id != #{excludeLineId})")
+    @Select("<script>SELECT COUNT(*) FROM pdm_bom_line WHERE bom_id = #{bomId} " +
+            "<choose><when test='parentId != null'>AND parent_material_id = #{parentId}</when><otherwise>AND parent_material_id IS NULL</otherwise></choose> " +
+            "AND component_material_id = #{componentId} " +
+            "<if test='excludeLineId != null'>AND line_id != #{excludeLineId}</if></script>")
     int countDuplicateLine(@Param("bomId") Long bomId,
                            @Param("parentId") Long parentId,
                            @Param("componentId") Long componentId,

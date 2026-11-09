@@ -155,7 +155,7 @@
                   <el-input v-model="form.bomName" maxlength="200" show-word-limit />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col v-if="form.bomType !== 3" :span="12">
                 <el-form-item label="产品物料" prop="productMaterialId" required>
                   <div style="display:flex;gap:4px">
                     <el-select v-model="form.productMaterialId" placeholder="输入编码/名称搜索" filterable size="default"
@@ -174,7 +174,7 @@
               <el-col :span="12">
                 <el-form-item label="默认版本">
                   <el-switch v-model="form.isDefault" :active-value="1" :inactive-value="0" />
-                  <span class="hint ml-8">同成品只能1个默认版本</span>
+                  <span class="hint ml-8">{{ form.bomType === 3 ? '同客户、机型只能有1个默认版本' : '同成品只能1个默认版本' }}</span>
                 </el-form-item>
               </el-col>
               <el-col :span="8">
@@ -189,7 +189,7 @@
               </el-col>
               <el-col :span="8">
                 <el-form-item label="BOM类型">
-                  <el-select v-model="form.bomType" style="width:100%">
+                  <el-select v-model="form.bomType" :disabled="salesBomPage || dlg.isEdit || dlg.viewOnly" style="width:100%">
                     <el-option v-for="t in BOM_TYPES" :key="t.val" :label="t.label" :value="t.val" />
                   </el-select>
                 </el-form-item>
@@ -205,7 +205,7 @@
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
-                  <el-form-item label="齐套机型">
+                  <el-form-item label="齐套机型" prop="kitModel" required>
                     <el-input v-model="form.kitModel" placeholder="如 跑步机X1 / 椭圆机E5" maxlength="100" show-word-limit />
                   </el-form-item>
                 </el-col>
@@ -253,10 +253,10 @@
         <el-tab-pane label="行项清单" name="lines">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <el-alert type="info" :closable="false" show-icon style="max-width:700px"
-              title="行项按成品(父=成品)的单层保存；多层BOM请将父项改为半成品ID（或点击『多层展开』查看递归结果）" />
+              :title="form.bomType === 3 ? '销售BOM直接维护子件和用量。' : '行项按成品的单层保存；多层BOM可将父项改为半成品。'" />
             <div>
               <el-button size="small" type="primary" plain :icon="Plus" @click="addLine"
-                v-hasPermi="'pdm:bom:edit'" :disabled="dlg.viewOnly">新增行</el-button>
+                v-hasPermi="['pdm:bom:add','pdm:bom:edit']" :disabled="dlg.viewOnly">新增行</el-button>
               <el-button size="small" type="warning" plain :icon="Refresh" @click="sortLineNo"
                 :disabled="dlg.viewOnly">重排行号(10,20,30)</el-button>
             </div>
@@ -267,7 +267,7 @@
                 <el-input-number size="small" v-model="row.lineNo" :min="1" :step="1" :controls="false" style="width:100%" />
               </template>
             </el-table-column>
-            <el-table-column label="父件物料" width="200" align="center">
+            <el-table-column v-if="form.bomType !== 3" label="父件物料" width="200" align="center">
               <template #default="{ row }">
                 <el-select size="small" v-model="row.parentMaterialId" placeholder="选择父件" filterable style="width:100%"
                   @change="(v:any)=>fillParent(row, v)">
@@ -350,7 +350,7 @@
             </el-table-column>
             <el-table-column label="操作" width="60" fixed="right" align="center">
               <template #default="{ $index }">
-                <el-button size="small" link type="danger" v-hasPermi="'pdm:bom:edit'" :disabled="dlg.viewOnly"
+                <el-button size="small" link type="danger" v-hasPermi="['pdm:bom:add','pdm:bom:edit']" :disabled="dlg.viewOnly"
                   @click="lineRows.splice($index,1)">移除</el-button>
               </template>
             </el-table-column>
@@ -683,7 +683,8 @@ const rules: FormRules = {
   bomCode: [{ required: true, message: '请输入/生成BOM编号', trigger: 'blur' }],
   bomName: [{ required: true, message: '请输入BOM名称', trigger: 'blur' }],
   version: [{ required: true, message: '请输入版本号', trigger: 'blur' }],
-  productMaterialId: [{ required: true, message: '请选择产成品物料', trigger: 'change' }]
+  productMaterialId: [{ required: true, message: '请选择产成品物料', trigger: 'change' }],
+  kitModel: [{ required: true, message: '请填写齐套机型', trigger: 'blur' }]
 }
 function resetForm() {
   Object.assign(form, {
@@ -691,7 +692,7 @@ function resetForm() {
     productMaterialId: undefined as any,
     productMaterialCode: '', productMaterialName: '',
     isDefault: 0, quantity: 1, unit: 'PCS',
-    bomType: salesBomPage ? 3 : 1, status: 0, auditBy: '', auditTime: '', rejectReason: '',
+    bomType: salesBomPage ? 3 : 1, customerId: undefined, kitModel: '', status: 0, auditBy: '', auditTime: '', rejectReason: '',
     effectiveDate: undefined, expiryDate: undefined,
     ecoNo: '', specification: '', remark: ''
   })
@@ -849,16 +850,13 @@ async function submit() {
       dlg.tab = 'lines'
       return
     }
-    if (!l.parentMaterialId) l.parentMaterialId = form.productMaterialId
+    if (form.bomType !== 3 && !l.parentMaterialId) l.parentMaterialId = form.productMaterialId
   }
   submitting.value = true
   try {
     if (dlg.isEdit) {
-      await bomApi.edit(form as any)
-      ElMessage.success('主档修改成功')
-      // 行项 replaceAll
-      try { await bomApi.replaceLines(form.bomId!, buildCleanLines()) }
-      catch (e: any) { ElMessage.error('行项保存失败: ' + (e?.message || e)); throw e }
+      await bomApi.editWithLines({ ...form, lines: buildCleanLines() } as any)
+      ElMessage.success('BOM及行项修改成功')
     } else {
       (form as any).lines = buildCleanLines()
       const r: any = await bomApi.add(form as any)

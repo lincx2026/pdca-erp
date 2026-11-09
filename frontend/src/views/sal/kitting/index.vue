@@ -94,11 +94,11 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="12"><el-form-item label="订单明细" prop="soLineId"><el-select v-model="editDlg.form.soLineId" filterable placeholder="选择订单物料" style="width:100%" @change="onSoLineChange"><el-option v-for="line in orderLines" :key="line.lineId" :value="line.lineId" :label="`${line.materialCode} - ${line.materialName}`" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="订单明细"><el-select v-model="editDlg.form.soLineId" filterable clearable placeholder="可选：筛选旧式成品BOM" style="width:100%" @change="onSoLineChange"><el-option v-for="line in orderLines" :key="line.lineId" :value="line.lineId" :label="`${line.materialCode} - ${line.materialName}`" /></el-select></el-form-item></el-col>
           <el-col :span="12">
             <el-form-item label="齐套BOM" prop="bomId">
-              <el-select v-model="editDlg.form.bomId" filterable remote reserve-keyword :remote-method="loadBomOptions" placeholder="先选择订单明细" style="width:100%" @change="onBomChange">
-                <el-option v-for="b in bomOptions" :key="b.bomId" :label="`${b.bomCode} - ${b.bomName}`" :value="b.bomId" />
+              <el-select v-model="editDlg.form.bomId" filterable remote reserve-keyword :remote-method="loadBomOptions" placeholder="选择客户适用的销售BOM" style="width:100%" @change="onBomChange">
+                <el-option v-for="b in bomOptions" :key="b.bomId" :label="`${b.kitModel || ''} ${b.bomCode} - ${b.bomName} ${b.version || ''}`" :value="b.bomId" />
                 <template #empty><span>没有匹配的已启用销售BOM，请先维护</span></template>
               </el-select>
               <el-button link type="primary" @click="router.push('/sal/sales-bom')">前往销售BOM管理</el-button>
@@ -260,9 +260,10 @@ async function onSoChange(soId: number) {
   editDlg.form.soLineId = undefined; editDlg.form.bomId = undefined; bomOptions.value = []
   try { const result: any = await salOrderApi.lines(soId); orderLines.value = result?.rows || [] }
   catch (e: any) { orderLines.value = []; ElMessage.error(e?.message || '加载订单明细失败') }
+  await loadBomOptions()
 }
 async function loadBomOptions(keyword = '') {
-  if (!editDlg.form.soId || !editDlg.form.soLineId) { bomOptions.value = []; return }
+  if (!editDlg.form.soId) { bomOptions.value = []; return }
   try { bomOptions.value = await salKittingApi.bomOptions(editDlg.form.soId, editDlg.form.soLineId, keyword) || [] }
   catch (e: any) { bomOptions.value = []; ElMessage.error(e?.message || '加载销售BOM失败') }
 }
@@ -282,7 +283,6 @@ const editFormRef = ref<FormInstance>()
 const editDlg = reactive({ show: false, isNew: true, saving: false, form: {} as Partial<SalKitting> })
 const editRules = {
   soId: [{ required: true, message: '请选择销售订单', trigger: 'change' }],
-  soLineId: [{ required: true, message: '请选择销售订单明细', trigger: 'change' }],
   bomId: [{ required: true, message: '请选择齐套BOM', trigger: 'change' }],
   kitQty: [{ required: true, message: '请输入齐套数量', trigger: 'blur' }]
 }

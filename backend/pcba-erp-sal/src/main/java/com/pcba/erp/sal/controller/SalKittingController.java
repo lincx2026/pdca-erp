@@ -31,7 +31,7 @@ public class SalKittingController {
 
     @PreAuthorize("@ps.hasAnyPermi('sal:kitting:list', 'sal:kitting:add')")
     @GetMapping("/bom-options")
-    public R<List<Map<String, Object>>> bomOptions(@RequestParam Long soId, @RequestParam Long soLineId, @RequestParam(required = false) String keyword) {
+    public R<List<Map<String, Object>>> bomOptions(@RequestParam Long soId, @RequestParam(required = false) Long soLineId, @RequestParam(required = false) String keyword) {
         return R.ok(kittingService.bomOptions(soId, soLineId, keyword));
     }
     private final ISalKittingLineService lineService;

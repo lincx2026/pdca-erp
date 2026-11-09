@@ -62,10 +62,61 @@ class OrderWorkflowIntegrationTest {
         Long product = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-BOM-PARENT','parent',1) RETURNING material_id", Long.class);
         Long component = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-BOM-CHILD','child',1) RETURNING material_id", Long.class);
         var bom = new com.pcba.erp.pdm.entity.PdmBom();
-        bom.setBomCode("TEST-SALES-BOM-SAVE"); bom.setBomName("sales kit"); bom.setVersion("V2.0"); bom.setProductMaterialId(product); bom.setBomType(3);
+        bom.setBomCode("TEST-SALES-BOM-SAVE"); bom.setBomName("sales kit"); bom.setVersion("V2.0"); bom.setProductMaterialId(product); bom.setBomType(3); bom.setKitModel("E27M");
         var line = new com.pcba.erp.pdm.entity.PdmBomLine(); line.setComponentMaterialId(component); line.setQuantity(BigDecimal.ONE); bom.setLines(List.of(line));
         Long id = boms.saveWithLines(bom);
         assertEquals(1, boms.getDetail(id).getLines().size());
+        assertNull(boms.getDetail(id).getProductMaterialId());
+        assertNull(boms.getDetail(id).getLines().get(0).getParentMaterialId());
+        assertEquals(0, BigDecimal.ONE.compareTo(boms.explodeFlatSum(id,10,true).get(component).getPathQty()));
+        var duplicate = new com.pcba.erp.pdm.entity.PdmBom(); duplicate.setBomCode("TEST-SALES-BOM-DUP"); duplicate.setBomName("duplicate"); duplicate.setVersion("v2.0"); duplicate.setBomType(3); duplicate.setKitModel("e27m");
+        assertThrows(ServiceException.class, () -> boms.saveWithLines(duplicate));
+    }
+
+    @Test @Transactional
+    void manufacturingBomRetainsProductAndParentAndExplodes() {
+        Long product = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-MFG-PARENT','parent',1) RETURNING material_id", Long.class);
+        Long component = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-MFG-CHILD','child',1) RETURNING material_id", Long.class);
+        var bom = new com.pcba.erp.pdm.entity.PdmBom(); bom.setBomCode("TEST-MFG-BOM"); bom.setBomName("manufacturing"); bom.setVersion("V1"); bom.setProductMaterialId(product); bom.setBomType(1);
+        var line = new com.pcba.erp.pdm.entity.PdmBomLine(); line.setComponentMaterialId(component); line.setQuantity(new BigDecimal("2")); bom.setLines(List.of(line));
+        Long id = boms.saveWithLines(bom);
+        assertEquals(product, boms.getDetail(id).getLines().get(0).getParentMaterialId());
+        assertEquals(0, new BigDecimal("2").compareTo(boms.explodeFlatSum(id,10,true).get(component).getPathQty()));
+    }
+
+    @Test @Transactional
+    void flatSalesBomKittingLinksEachChildToItsOwnOrderLine() {
+        Long a = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-FLAT-A','A',1) RETURNING material_id", Long.class);
+        Long b = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-FLAT-B','B',1) RETURNING material_id", Long.class);
+        var bom = new com.pcba.erp.pdm.entity.PdmBom(); bom.setBomCode("TEST-FLAT-BOM"); bom.setBomName("flat"); bom.setVersion("V1"); bom.setBomType(3); bom.setCustomerId(1L); bom.setKitModel("E27M"); bom.setQuantity(new BigDecimal("2"));
+        var la = new com.pcba.erp.pdm.entity.PdmBomLine(); la.setComponentMaterialId(a); la.setQuantity(new BigDecimal("4"));
+        var lb = new com.pcba.erp.pdm.entity.PdmBomLine(); lb.setComponentMaterialId(b); lb.setQuantity(new BigDecimal("2")); bom.setLines(List.of(la,lb));
+        Long bomId = boms.saveWithLines(bom); boms.submitAudit(bomId); boms.auditPass(bomId,"tester");
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,customer_name,so_date,status,warehouse_id) VALUES ('TEST-FLAT-SO',1,'customer',CURRENT_DATE,2,90001) RETURNING so_id", Long.class);
+        Long lineA = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,10,?,10,1) RETURNING line_id", Long.class,so,a);
+        Long lineB = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,20,?,5,1) RETURNING line_id", Long.class,so,b);
+        inventory.increaseInventory(90001L,a,"",new BigDecimal("30"),"PCS"); inventory.increaseInventory(90001L,b,"",new BigDecimal("30"),"PCS");
+        assertEquals(1,kitting.bomOptions(so,null,"E27M").size());
+        var k = new com.pcba.erp.sal.entity.SalKitting(); k.setSoId(so); k.setBomId(bomId); k.setKitQty(new BigDecimal("5")); k.setWarehouseId(90001L);
+        Long kit = kitting.save(k); assertTrue(kitting.runKittingCheck(kit));
+        Long out = kitting.generateStockOut(kit);
+        var outLines = stockOut.getDetail(out).getLines();
+        assertEquals(2,outLines.size());
+        assertTrue(outLines.stream().anyMatch(l -> lineA.equals(l.getSoLineId()) && new BigDecimal("10").compareTo(l.getQuantity())==0));
+        assertTrue(outLines.stream().anyMatch(l -> lineB.equals(l.getSoLineId()) && new BigDecimal("5").compareTo(l.getQuantity())==0));
+        assertEquals(0,new BigDecimal("10").compareTo(jdbc.queryForObject("SELECT shipped_qty FROM sal_sales_order_line WHERE line_id=?",BigDecimal.class,lineA)));
+        assertThrows(ServiceException.class, () -> kitting.generateStockOut(kit));
+    }
+
+    @Test @Transactional
+    void flatSalesBomRejectsDuplicateComponentsAndEmptyApproval() {
+        Long component = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-FLAT-DUP','child',1) RETURNING material_id", Long.class);
+        var bom = new com.pcba.erp.pdm.entity.PdmBom(); bom.setBomCode("TEST-FLAT-EMPTY"); bom.setBomName("empty"); bom.setVersion("V1"); bom.setBomType(3); bom.setKitModel("EMPTY");
+        Long id = boms.saveWithLines(bom);
+        assertThrows(ServiceException.class, () -> boms.submitAudit(id));
+        var first = new com.pcba.erp.pdm.entity.PdmBomLine(); first.setComponentMaterialId(component); first.setQuantity(BigDecimal.ONE);
+        var second = new com.pcba.erp.pdm.entity.PdmBomLine(); second.setComponentMaterialId(component); second.setQuantity(BigDecimal.ONE);
+        assertThrows(ServiceException.class, () -> boms.replaceLines(id,List.of(first,second)));
     }
 
     @Test @Transactional

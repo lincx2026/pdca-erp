@@ -46,6 +46,7 @@ public class PdmBomServiceImpl implements IPdmBomService {
     private final PdmMaterialMapper materialMapper;
     private final PdmMaterialCategoryMapper categoryMapper;
     private final StringRedisTemplate redisTemplate;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     /** Lua 脚本：原子 INCR + 首次设置过期 */
     private static final String LUA_CODE_INCR =
@@ -108,29 +109,29 @@ public class PdmBomServiceImpl implements IPdmBomService {
         if (bom.getBomCode() == null || bom.getBomCode().isBlank()) {
             bom.setBomCode(nextBomCode());
         }
-        // 2. 成品物料必须存在
-        PdmMaterial prod = materialMapper.selectById(bom.getProductMaterialId());
-        if (prod == null) throw new ServiceException("成品物料不存在");
-        if (bom.getProductMaterialCode() == null || bom.getProductMaterialCode().isBlank())
-            bom.setProductMaterialCode(prod.getMaterialCode());
-        if (bom.getProductMaterialName() == null || bom.getProductMaterialName().isBlank())
-            bom.setProductMaterialName(prod.getMaterialName());
-        if (bom.getUnit() == null || bom.getUnit().isBlank()) bom.setUnit(prod.getUnit() == null ? "PCS" : prod.getUnit());
-
-        // 3. 版本号唯一性
-        int dup = bomMapper.countDuplicateVersion(bom.getProductMaterialId(), bom.getVersion(), null);
-        if (dup > 0) throw new ServiceException("该成品已存在版本号【" + bom.getVersion() + "】");
-
-        // 4. 默认版本: 若 isDefault=1 则把同成品其他版本置为0
-        if (Integer.valueOf(1).equals(bom.getIsDefault())) {
-            clearDefaultForOtherVersions(bom.getProductMaterialId(), null);
+        if (bom.getBomType() == null) bom.setBomType(1);
+        if (bom.getBomName() == null || bom.getBomName().isBlank() || bom.getVersion() == null || bom.getVersion().isBlank()) throw new ServiceException("BOM名称和版本号不能为空");
+        if (Integer.valueOf(3).equals(bom.getBomType())) {
+            bom.setProductMaterialId(null); bom.setProductMaterialCode(""); bom.setProductMaterialName("");
+            validateFlatSalesVersion(bom, null);
+        } else {
+            if (bom.getProductMaterialId() == null) throw new ServiceException("请选择成品物料");
+            PdmMaterial prod = materialMapper.selectById(bom.getProductMaterialId());
+            if (prod == null) throw new ServiceException("成品物料不存在");
+            if (bom.getProductMaterialCode() == null || bom.getProductMaterialCode().isBlank()) bom.setProductMaterialCode(prod.getMaterialCode());
+            if (bom.getProductMaterialName() == null || bom.getProductMaterialName().isBlank()) bom.setProductMaterialName(prod.getMaterialName());
+            if (bom.getUnit() == null || bom.getUnit().isBlank()) bom.setUnit(prod.getUnit() == null ? "PCS" : prod.getUnit());
+            if (bomMapper.countDuplicateVersion(bom.getProductMaterialId(), bom.getVersion(), null) > 0) throw new ServiceException("该成品已存在版本号【" + bom.getVersion() + "】");
+            if (Integer.valueOf(1).equals(bom.getIsDefault())) clearDefaultForOtherVersions(bom.getProductMaterialId(), null);
         }
         if (bom.getQuantity() == null) bom.setQuantity(BigDecimal.ONE);
+        if (bom.getQuantity().signum() <= 0) throw new ServiceException("产出基数必须大于零");
         if (bom.getIsDefault() == null) bom.setIsDefault(0);
         if (bom.getBomType() == null) bom.setBomType(1);
         if (bom.getStatus() == null) bom.setStatus(0);
 
-        bomMapper.insert(bom);
+        try { bomMapper.insert(bom); }
+        catch (org.springframework.dao.DuplicateKeyException e) { throw new ServiceException("BOM编号或客户、机型版本已存在"); }
         Long bomId = bom.getBomId();
 
         // 5. 行项
@@ -150,18 +151,26 @@ public class PdmBomServiceImpl implements IPdmBomService {
         if (Integer.valueOf(2).equals(old.getStatus()) || Integer.valueOf(5).equals(old.getStatus())) {
             throw new ServiceException("已启用/已归档BOM请先停用或通过ECO变更");
         }
-        // 版本号唯一性
-        if (bom.getVersion() != null && !bom.getVersion().isBlank()) {
+        if (bom.getBomType() != null && !Objects.equals(bom.getBomType(), old.getBomType())) throw new ServiceException("BOM类型不可修改，请新建BOM");
+        if (bom.getQuantity() != null && bom.getQuantity().signum() <= 0) throw new ServiceException("产出基数必须大于零");
+        bom.setBomType(old.getBomType());
+        if (Integer.valueOf(3).equals(old.getBomType()) && old.getProductMaterialId() == null) {
+            if (bom.getVersion() == null) bom.setVersion(old.getVersion());
+            if (bom.getKitModel() == null) bom.setKitModel(old.getKitModel());
+            validateFlatSalesVersion(bom, old.getBomId());
+        } else if (bom.getVersion() != null && !bom.getVersion().isBlank()) {
             int dup = bomMapper.countDuplicateVersion(old.getProductMaterialId(), bom.getVersion(), bom.getBomId());
             if (dup > 0) throw new ServiceException("版本号【" + bom.getVersion() + "】已存在");
         }
         // 默认版本切换
-        if (Integer.valueOf(1).equals(bom.getIsDefault())) {
+        if (Integer.valueOf(1).equals(bom.getIsDefault()) && !(Integer.valueOf(3).equals(old.getBomType()) && old.getProductMaterialId() == null)) {
             clearDefaultForOtherVersions(old.getProductMaterialId(), bom.getBomId());
         }
         // product_material_id 不允许修改
         bom.setProductMaterialId(old.getProductMaterialId());
-        return bomMapper.updateById(bom) > 0;
+        boolean updated = bomMapper.updateById(bom) > 0;
+        if (updated && Integer.valueOf(3).equals(old.getBomType()) && old.getProductMaterialId() == null && bom.getCustomerId() == null) jdbc.update("UPDATE pdm_bom SET customer_id=NULL WHERE bom_id=?", bom.getBomId());
+        return updated;
     }
 
     @Override
@@ -200,6 +209,7 @@ public class PdmBomServiceImpl implements IPdmBomService {
     @Transactional(rollbackFor = Exception.class)
     public boolean submitAudit(Long bomId) {
         PdmBom old = requireStatus(bomId, 0, 4);
+        if (Integer.valueOf(3).equals(old.getBomType()) && lineMapper.listByBomId(bomId).stream().noneMatch(line -> Integer.valueOf(1).equals(line.getStatus()))) throw new ServiceException("销售BOM至少需要一个启用的子件");
         old.setStatus(1);
         return bomMapper.updateById(old) > 0;
     }
@@ -253,6 +263,14 @@ public class PdmBomServiceImpl implements IPdmBomService {
     public List<PdmBomLine> explodeTree(Long bomId, int levelMax, boolean phantomExpand) {
         PdmBom bom = bomMapper.selectById(bomId);
         if (bom == null) return Collections.emptyList();
+        if (Integer.valueOf(3).equals(bom.getBomType()) && bom.getProductMaterialId() == null) {
+            List<PdmBomLine> flat = lineMapper.listByBomId(bomId);
+            flat.removeIf(line -> !Integer.valueOf(1).equals(line.getStatus()));
+            BigDecimal base = bom.getQuantity() == null ? BigDecimal.ONE : bom.getQuantity();
+            if (base.signum() <= 0) throw new ServiceException("销售BOM产出基数必须大于零");
+            for (PdmBomLine line : flat) { line.setLevel(0); line.setPathQty((line.getGrossQty() == null ? line.getQuantity() : line.getGrossQty()).divide(base, 6, RoundingMode.HALF_UP)); }
+            return flat;
+        }
         if (levelMax <= 0) levelMax = 10;
         List<PdmBomLine> result = new ArrayList<>();
         // 成品 → 直接子件 (递归)
@@ -329,6 +347,7 @@ public class PdmBomServiceImpl implements IPdmBomService {
                         .add(l.getPathQty() == null ? BigDecimal.ZERO : l.getPathQty()));
             } else {
                 PdmBomLine cp = new PdmBomLine();
+                cp.setLineId(l.getLineId());
                 cp.setComponentMaterialId(mid);
                 cp.setComponentMaterialCode(l.getComponentMaterialCode());
                 cp.setComponentMaterialName(l.getComponentMaterialName());
@@ -448,6 +467,23 @@ public class PdmBomServiceImpl implements IPdmBomService {
         }
     }
 
+    private void validateFlatSalesVersion(PdmBom bom, Long excludedId) {
+        if (bom.getKitModel() == null || bom.getKitModel().isBlank()) throw new ServiceException("销售BOM请填写齐套机型");
+        if (bom.getVersion() == null || bom.getVersion().isBlank()) throw new ServiceException("版本号不能为空");
+        bom.setKitModel(bom.getKitModel().trim()); bom.setVersion(bom.getVersion().trim());
+        String group = "sales-bom:" + (bom.getCustomerId() == null ? "0" : bom.getCustomerId()) + ":" + bom.getKitModel().toLowerCase(Locale.ROOT);
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?,0)) IS NULL", Boolean.class, group);
+        var query = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PdmBom>()
+            .eq(PdmBom::getBomType, 3).isNull(PdmBom::getProductMaterialId)
+            .apply("lower(trim(kit_model)) = lower({0})", bom.getKitModel())
+            .eq(bom.getCustomerId() != null, PdmBom::getCustomerId, bom.getCustomerId())
+            .isNull(bom.getCustomerId() == null, PdmBom::getCustomerId)
+            .ne(excludedId != null, PdmBom::getBomId, excludedId);
+        List<PdmBom> same = bomMapper.selectList(query);
+        if (same.stream().anyMatch(row -> row.getVersion() != null && row.getVersion().trim().equalsIgnoreCase(bom.getVersion()))) throw new ServiceException("该客户及机型已存在版本号【" + bom.getVersion() + "】");
+        if (Integer.valueOf(1).equals(bom.getIsDefault())) for (PdmBom row : same) if (Integer.valueOf(1).equals(row.getIsDefault())) { row.setIsDefault(0); bomMapper.updateById(row); }
+    }
+
     private PdmBom requireStatus(Long bomId, Integer... expected) {
         PdmBom old = bomMapper.selectById(bomId);
         if (old == null) throw new ServiceException("BOM不存在");
@@ -461,11 +497,15 @@ public class PdmBomServiceImpl implements IPdmBomService {
     /** 批量插入行 + 字段校验与冗余填充 */
     @Transactional(rollbackFor = Exception.class)
     public void saveLines(Long bomId, Long productMaterialId, List<PdmBomLine> lines) {
+        PdmBom header = bomMapper.selectById(bomId);
+        boolean flat = header != null && Integer.valueOf(3).equals(header.getBomType()) && productMaterialId == null;
         int idx = 0;
         for (PdmBomLine line : lines) {
             line.setBomId(bomId);
             // 父项物料: 未填则按顶层成品
-            if (line.getParentMaterialId() == null) line.setParentMaterialId(productMaterialId);
+            if (flat) line.setParentMaterialId(null);
+            else if (line.getParentMaterialId() == null) line.setParentMaterialId(productMaterialId);
+            if (!flat && line.getParentMaterialId() == null) throw new ServiceException("父项物料不能为空");
             if (line.getLineNo() == null || line.getLineNo() <= 0) line.setLineNo(++idx * 10);
             if (line.getComponentMaterialId() == null) {
                 throw new ServiceException("行项缺少子件物料ID(行号 " + line.getLineNo() + ")");
@@ -488,6 +528,7 @@ public class PdmBomServiceImpl implements IPdmBomService {
             if (line.getUnit() == null || line.getUnit().isBlank())
                 line.setUnit(comp.getUnit() == null ? "PCS" : comp.getUnit());
             if (line.getQuantity() == null) line.setQuantity(BigDecimal.ONE);
+            if (line.getQuantity().signum() <= 0) throw new ServiceException("子件用量必须大于零");
             if (line.getLossRate() == null) line.setLossRate(BigDecimal.ZERO);
             // 损耗率限 0~0.5
             if (line.getLossRate().compareTo(BigDecimal.ZERO) < 0) line.setLossRate(BigDecimal.ZERO);

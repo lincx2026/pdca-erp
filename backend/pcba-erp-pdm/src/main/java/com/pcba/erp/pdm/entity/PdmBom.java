@@ -33,7 +33,6 @@ public class PdmBom implements Serializable {
     private String bomName;
 
     /** 产成品/半成品 物料ID */
-    @NotNull(message = "成品物料ID不能为空")
     private Long productMaterialId;
 
     private String productMaterialCode;
