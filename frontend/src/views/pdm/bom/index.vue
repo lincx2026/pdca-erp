@@ -9,10 +9,10 @@
         <el-form-item label="BOM名称">
           <el-input v-model="q.bomName" placeholder="模糊" clearable style="width:180px" />
         </el-form-item>
-        <el-form-item label="成品编码">
+        <el-form-item v-if="!salesBomPage" label="成品编码">
           <el-input v-model="q.productMaterialCode" placeholder="如 RES-26-0001" clearable style="width:180px" />
         </el-form-item>
-        <el-form-item label="成品分类">
+        <el-form-item v-if="!salesBomPage" label="成品分类">
           <el-tree-select
             v-model="q.categoryId"
             :data="catTree"
@@ -24,7 +24,7 @@
           />
         </el-form-item>
         <el-form-item label="类型">
-          <el-select v-model="q.bomType" placeholder="全部" clearable style="width:140px">
+          <el-select v-model="q.bomType" :disabled="salesBomPage" placeholder="全部" clearable style="width:140px">
             <el-option v-for="t in BOM_TYPES" :key="t.val" :label="t.label" :value="t.val" />
           </el-select>
         </el-form-item>
@@ -46,7 +46,7 @@
         </el-form-item>
         <el-form-item style="margin-left:auto">
           <el-button type="primary" @click="openAdd()" :icon="Plus" v-hasPermi="'pdm:bom:add'">新建BOM</el-button>
-          <el-button type="success" @click="openImportDlg()" :icon="Upload">导入BOM</el-button>
+          <el-button v-if="!salesBomPage" type="success" @click="openImportDlg()" :icon="Upload">导入BOM</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -58,9 +58,9 @@
           <template #default="{ row }"><b>{{ row.bomCode }}</b></template>
         </el-table-column>
         <el-table-column prop="bomName" label="BOM名称" min-width="200" show-overflow-tooltip />
-        <el-table-column label="成品(版本)" width="300">
+        <el-table-column :label="salesBomPage ? '版本' : '成品(版本)'" :width="salesBomPage ? 150 : 300">
           <template #default="{ row }">
-            <el-tag type="primary" effect="plain" size="small">{{ row.productMaterialCode }}</el-tag>
+            <el-tag v-if="row.productMaterialCode" type="primary" effect="plain" size="small">{{ row.productMaterialCode }}</el-tag>
             <span style="margin:0 6px">{{ row.productMaterialName }}</span>
             <el-tag type="warning" size="small" v-if="row.version">{{ row.version }}</el-tag>
             <el-tag v-if="row.isDefault === 1" type="danger" size="small" effect="dark">默认</el-tag>
@@ -74,8 +74,8 @@
         <el-table-column label="客户 / 机型" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.customerId || row.kitModel" style="color:#606266">
-              <el-tag v-if="row.customerName" size="small" type="info">{{ row.customerName }}</el-tag>
-              <span v-if="row.customerName && row.kitModel"> / </span>
+              <el-tag size="small" type="info">{{ row.customerId ? (customerOpts.find(c => c.customerId === row.customerId)?.customerName || `客户 #${row.customerId}`) : '通用客户' }}</el-tag>
+              <span v-if="row.kitModel"> / </span>
               <span v-if="row.kitModel" style="color:#409eff;font-weight:600">{{ row.kitModel }}</span>
             </span>
             <span v-else style="color:#c0c4cc">—</span>
@@ -112,7 +112,7 @@
             <el-button link size="small" type="primary" @click="openEdit(row)" v-hasPermi="'pdm:bom:edit'"
               :disabled="row.status === 2 || row.status === 4">修改</el-button>
             <el-button link size="small" type="primary" @click="openExplode(row)" v-hasPermi="'pdm:bom:explode'">展开</el-button>
-            <el-button link size="small" type="primary" @click="openWhereUsed(row.productMaterialId)" v-hasPermi="'pdm:bom:whereused'">反查</el-button>
+            <el-button v-if="row.productMaterialId" link size="small" type="primary" @click="openWhereUsed(row.productMaterialId)" v-hasPermi="'pdm:bom:whereused'">反查</el-button>
             <el-button link size="small" type="warning" @click="submitAudit(row)" v-hasPermi="'pdm:bom:audit'"
               :disabled="row.status !== 0 && row.status !== 4">提交</el-button>
             <el-button link size="small" type="success" @click="auditPass(row)" v-hasPermi="'pdm:bom:audit'"
