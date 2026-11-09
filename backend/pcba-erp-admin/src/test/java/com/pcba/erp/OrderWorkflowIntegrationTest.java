@@ -120,6 +120,17 @@ class OrderWorkflowIntegrationTest {
     }
 
     @Test @Transactional
+    void salesKitDoesNotCreateShipmentForMissingOrAmbiguousOrderLine() {
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,status) VALUES ('TEST-KIT-MAP-SO',1,CURRENT_DATE,2) RETURNING so_id", Long.class);
+        Long kit = jdbc.queryForObject("INSERT INTO sal_kitting(kitting_no,so_id,bom_id,status,warehouse_id) VALUES ('TEST-KIT-MAP',?,999999,2,90001) RETURNING kitting_id", Long.class,so);
+        jdbc.update("INSERT INTO sal_kitting_line(kitting_id,material_id,material_code,req_qty,is_shortage) VALUES (?,991234,'TEST-MAP',1,0)",kit);
+        assertThrows(ServiceException.class, () -> kitting.generateStockOut(kit));
+        jdbc.update("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,10,991234,2,1),(?,20,991234,2,1)",so,so);
+        assertThrows(ServiceException.class, () -> kitting.generateStockOut(kit));
+        assertNull(jdbc.queryForObject("SELECT stock_out_id FROM sal_kitting WHERE kitting_id=?",Long.class,kit));
+    }
+
+    @Test @Transactional
     void workBomAllocatesLinesAndProtectsIssuedQuantity() {
         PmmWorkOrder order = new PmmWorkOrder(); order.setMaterialId(123L); order.setOrderQty(BigDecimal.TEN);
         Long id = workOrders.save(order);

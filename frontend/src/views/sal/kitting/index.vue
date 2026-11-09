@@ -191,7 +191,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import { salKittingApi, salOrderApi, warehouseApi } from '@/api'
@@ -242,6 +242,7 @@ const soOptions = ref<any[]>([])
 const bomOptions = ref<any[]>([])
 const orderLines = ref<any[]>([])
 const router = useRouter()
+const route = useRoute()
 async function loadOptions() {
   try { soOptions.value = (await salOrderApi.options()) || [] } catch { soOptions.value = [] }
   try {
@@ -358,7 +359,15 @@ async function handleRemove(row: SalKitting) {
   await salKittingApi.remove(row.kittingId!); ElMessage.success('删除成功'); loadList()
 }
 
-onMounted(() => { loadList(); loadOptions() })
+onMounted(async () => {
+  await Promise.all([loadList(), loadOptions()])
+  const soId = Number(route.query.soId)
+  if (soId && soOptions.value.some(o => o.soId === soId)) {
+    await openAdd()
+    editDlg.form.soId = soId
+    await onSoChange(soId)
+  }
+})
 </script>
 
 <style scoped>

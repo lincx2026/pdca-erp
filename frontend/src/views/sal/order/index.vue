@@ -82,6 +82,7 @@
              @click="onViewLines(row)">
             执行齐套
           </el-button>
+          <el-button v-hasPermi="'sal:kitting:add'" size="small" link type="warning" :disabled="typeof row.status !== 'number' || [0, 9, 7].includes(row.status)" @click="router.push({ path: '/sal/kitting', query: { soId: row.soId } })">按机型齐套</el-button>
         </template>
       </el-table-column>
     </el-table>
