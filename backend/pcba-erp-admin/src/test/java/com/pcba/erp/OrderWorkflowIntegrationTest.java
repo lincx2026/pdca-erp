@@ -44,6 +44,7 @@ class OrderWorkflowIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired org.mybatis.spring.SqlSessionTemplate sql;
     @Autowired PdmMaterialMapper materials;
+    @Autowired com.pcba.erp.pdm.service.IPdmBomService boms;
     @Autowired IPmmWorkOrderService workOrders;
     @Autowired WorkInstructionService instructions;
     @Autowired com.pcba.erp.pmm.service.IPmmWorkOrderBomService workBom;
@@ -55,6 +56,17 @@ class OrderWorkflowIntegrationTest {
     @Autowired com.pcba.erp.sal.service.ISalSalesOrderLineService salesLines;
     @Autowired IWmsStockOutService stockOut;
     @Autowired IWmsInventoryService inventory;
+
+    @Test @Transactional
+    void savesSalesBomWithAComponent() {
+        Long product = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-BOM-PARENT','parent',1) RETURNING material_id", Long.class);
+        Long component = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-BOM-CHILD','child',1) RETURNING material_id", Long.class);
+        var bom = new com.pcba.erp.pdm.entity.PdmBom();
+        bom.setBomCode("TEST-SALES-BOM-SAVE"); bom.setBomName("sales kit"); bom.setVersion("V2.0"); bom.setProductMaterialId(product); bom.setBomType(3);
+        var line = new com.pcba.erp.pdm.entity.PdmBomLine(); line.setComponentMaterialId(component); line.setQuantity(BigDecimal.ONE); bom.setLines(List.of(line));
+        Long id = boms.saveWithLines(bom);
+        assertEquals(1, boms.getDetail(id).getLines().size());
+    }
 
     @Test @Transactional
     void workBomAllocatesLinesAndProtectsIssuedQuantity() {
