@@ -594,6 +594,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, RefreshRight, Plus, MagicStick, Refresh, Upload, Download } from '@element-plus/icons-vue'
 import { categoryApi, bomApi, materialApi, salCustomerApi, type BomListQ } from '@/api'
@@ -606,6 +607,7 @@ const BOM_TYPES = [
   { label: '计划BOM', val: 4 },
   { label: '替代BOM', val: 5 }
 ]
+const salesBomPage = useRoute().path === '/sal/sales-bom'
 const SUPPLY_TYPES: Record<number, string> = {
   1: '采购', 2: '自制', 3: '委外', 4: '虚拟', 5: '领用'
 }
@@ -624,7 +626,7 @@ const q = reactive<BomListQ>({
   pageNum: 1, pageSize: 20,
   bomCode: '', bomName: '', productMaterialCode: '',
   productMaterialId: undefined, categoryId: undefined,
-  bomType: undefined, status: undefined, version: ''
+  bomType: salesBomPage ? 3 : undefined, status: undefined, version: ''
 })
 const pager = reactive({ pageNum: 1, pageSize: 20, total: 0 })
 async function loadList() {
@@ -639,7 +641,7 @@ function resetQ() {
   Object.assign(q, {
     bomCode: '', bomName: '', productMaterialCode: '',
     productMaterialId: undefined, categoryId: undefined,
-    bomType: undefined, status: undefined, version: ''
+    bomType: salesBomPage ? 3 : undefined, status: undefined, version: ''
   })
   pager.pageNum = 1
   loadList()
@@ -689,7 +691,7 @@ function resetForm() {
     productMaterialId: undefined as any,
     productMaterialCode: '', productMaterialName: '',
     isDefault: 0, quantity: 1, unit: 'PCS',
-    bomType: 1, status: 0, auditBy: '', auditTime: '', rejectReason: '',
+    bomType: salesBomPage ? 3 : 1, status: 0, auditBy: '', auditTime: '', rejectReason: '',
     effectiveDate: undefined, expiryDate: undefined,
     ecoNo: '', specification: '', remark: ''
   })

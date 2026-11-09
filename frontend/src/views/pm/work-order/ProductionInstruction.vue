@@ -75,6 +75,7 @@
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
       <el-button @click="printInstruction">打印预览</el-button>
+      <el-button v-if="canEdit" :disabled="!loaded || form.version === 0 || saving || uploading" @click="publishTemplate">保存已存指令为型号模板</el-button>
       <el-button v-if="canEdit" type="primary" :loading="saving" :disabled="loading || uploading || !loaded" @click="save">保存指令</el-button>
     </template>
   </el-dialog>
@@ -151,6 +152,13 @@ async function save() {
   saving.value = true
   try { await workInstructionApi.save(id, form); await load(); ElMessage.success('生产指令已保存') }
   catch (e: any) { ElMessage.error(e?.message || '保存失败') } finally { saving.value = false }
+}
+async function publishTemplate() {
+  try {
+    const result = await ElMessageBox.prompt('将当前已保存的指令和附件保存为不可变的型号模板。请先保存本次修改。', '保存型号模板', { inputPlaceholder: '型号模板名称', inputValidator: value => !!value?.trim() && value.length <= 200 || '请输入不超过 200 字的名称' })
+    await workInstructionApi.publishTemplate(id, result.value.trim())
+    ElMessage.success('型号模板已保存')
+  } catch (e: any) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '保存型号模板失败') }
 }
 async function downloadFirmware() {
   if (!form.firmwareAttachmentId) return

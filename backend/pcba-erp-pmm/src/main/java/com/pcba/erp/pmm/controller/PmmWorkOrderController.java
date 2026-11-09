@@ -32,6 +32,15 @@ public class PmmWorkOrderController {
     private final IPmmWorkOrderService service;
     private final WorkInstructionService instructionService;
 
+    @GetMapping("/instruction-templates")
+    @PreAuthorize("@ps.hasAnyPermi('pm:workorder:list','pm:workorder:add')")
+    public R<List<Map<String, Object>>> instructionTemplates() { return R.ok(instructionService.templates()); }
+
+    @PostMapping("/{id}/instruction-template")
+    @PreAuthorize("@ps.hasPermi('pm:workorder:edit')")
+    @OperLog(title = "保存型号指令", businessType = 1)
+    public R<Long> publishTemplate(@PathVariable Long id, @RequestBody Map<String, String> body) { return R.ok(instructionService.publishTemplate(id, body.get("name"))); }
+
     @GetMapping("/{id}/instruction")
     @PreAuthorize("@ps.hasPermi('pm:workorder:list')")
     public R<PmmWorkInstruction> instruction(@PathVariable Long id) { return R.ok(instructionService.get(id)); }
@@ -97,8 +106,10 @@ public class PmmWorkOrderController {
     @PreAuthorize("@ps.hasPermi('pm:workorder:add')")
     @OperLog(title = "生产工单", businessType = 1)
     @PostMapping
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public R<Long> add(@Validated @RequestBody PmmWorkOrder entity) {
         Long id = service.save(entity);
+        if (id != null && entity.getInstructionTemplateId() != null) instructionService.applyTemplate(id, entity.getInstructionTemplateId());
         return id == null ? R.fail("新增失败") : R.ok(id);
     }
 

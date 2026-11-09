@@ -46,6 +46,7 @@ class OrderWorkflowIntegrationTest {
     @Autowired PdmMaterialMapper materials;
     @Autowired IPmmWorkOrderService workOrders;
     @Autowired WorkInstructionService instructions;
+    @Autowired com.pcba.erp.pmm.service.IPmmWorkOrderBomService workBom;
     @Autowired IScmPurchaseRequisitionService requisitions;
     @Autowired IScmPurchaseRequisitionLineService reqLines;
     @Autowired ISalSalesOrderService sales;
@@ -53,6 +54,56 @@ class OrderWorkflowIntegrationTest {
     @Autowired com.pcba.erp.sal.service.ISalSalesOrderLineService salesLines;
     @Autowired IWmsStockOutService stockOut;
     @Autowired IWmsInventoryService inventory;
+
+    @Test @Transactional
+    void workBomAllocatesLinesAndProtectsIssuedQuantity() {
+        PmmWorkOrder order = new PmmWorkOrder(); order.setMaterialId(123L); order.setOrderQty(BigDecimal.TEN);
+        Long id = workOrders.save(order);
+        var first = new com.pcba.erp.pmm.entity.PmmWorkOrderBom(); first.setWorkOrderId(id); first.setMaterialId(123L); first.setQtyPerUnit(new BigDecimal("2"));
+        Long firstId = workBom.save(first);
+        var second = new com.pcba.erp.pmm.entity.PmmWorkOrderBom(); second.setWorkOrderId(id); second.setMaterialId(123L); second.setQtyPerUnit(BigDecimal.ONE);
+        workBom.save(second);
+        assertEquals(1, first.getLineNo()); assertEquals(2, second.getLineNo());
+        assertEquals(0, new BigDecimal("20").compareTo(workBom.getDetail(firstId).getRequiredQty()));
+        var duplicate = new com.pcba.erp.pmm.entity.PmmWorkOrderBom(); duplicate.setWorkOrderId(id); duplicate.setMaterialId(123L); duplicate.setQtyPerUnit(BigDecimal.ONE); duplicate.setLineNo(1);
+        assertThrows(ServiceException.class, () -> workBom.save(duplicate));
+        var update = new com.pcba.erp.pmm.entity.PmmWorkOrderBom(); update.setBomLineId(firstId); update.setIssuedQty(BigDecimal.TEN);
+        workBom.update(update); assertEquals(0, BigDecimal.ZERO.compareTo(workBom.getDetail(firstId).getIssuedQty()));
+    }
+
+    @Test @Transactional
+    void instructionTemplateCreatesIndependentSnapshotAndAttachmentReferences() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-TEMPLATE-MODEL','model',1) RETURNING material_id", Long.class);
+        PmmWorkOrder a = new PmmWorkOrder(); a.setMaterialId(material); a.setOrderQty(BigDecimal.ONE); Long first = workOrders.save(a);
+        Long attachment = jdbc.queryForObject("INSERT INTO pmm_work_instruction_attachment(work_order_id,file_name,object_key,content_type,file_size,kind) VALUES (?,'test.png','test-template-key','image/png',10,'IMAGE') RETURNING attachment_id", Long.class, first);
+        PmmWorkInstruction instruction = new PmmWorkInstruction(); instruction.setBluetoothName("original"); instruction.setProductImageId(attachment); instructions.save(first, instruction);
+        Long template = instructions.publishTemplate(first, "model template");
+        instruction.setVersion(1); instruction.setBluetoothName("changed"); instructions.save(first, instruction);
+        PmmWorkOrder b = new PmmWorkOrder(); b.setMaterialId(material); b.setOrderQty(BigDecimal.ONE); Long second = workOrders.save(b);
+        instructions.applyTemplate(second, template);
+        var copied = instructions.get(second);
+        assertEquals("original", copied.getBluetoothName()); assertNotEquals(attachment, copied.getProductImageId());
+        assertEquals("test-template-key", instructions.attachment(second, copied.getProductImageId()).get("object_key"));
+        PmmWorkOrder other = new PmmWorkOrder(); other.setMaterialId(123L); other.setOrderQty(BigDecimal.ONE); Long third = workOrders.save(other);
+        assertThrows(ServiceException.class, () -> instructions.applyTemplate(third, template));
+    }
+
+    @Test @Transactional
+    void batchSalesPriceAndCopyUseIndependentAmountsAndStatus() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-SALES-QUOTE','model',1) RETURNING material_id", Long.class);
+        Long price = jdbc.queryForObject("INSERT INTO sal_customer_price(customer_id,material_id,unit_price,tax_rate,min_qty,valid_from,valid_to,status,currency) VALUES (1,?,113,13,1,CURRENT_DATE-1,CURRENT_DATE+1,2,'CNY') RETURNING price_id", Long.class, material);
+        SalSalesOrder order = new SalSalesOrder(); order.setCustomerId(1L); order.setCustomerOrderNo("OLD-PO"); Long original = sales.save(order);
+        var line = new com.pcba.erp.sal.entity.SalSalesOrderLine(); line.setSoId(original); line.setMaterialId(material); line.setOrderQty(BigDecimal.TEN); line.setUnitPrice(new BigDecimal("100")); line.setPriceSource("QUOTE"); line.setCustomerPriceId(price);
+        Long lineId = salesLines.saveBatch(List.of(line)).get(0);
+        assertEquals(0, new BigDecimal("1130").compareTo(salesLines.getDetail(lineId).getLineAmount()));
+        Long copy = sales.copy(original, false, null, null);
+        assertEquals(0, sales.getDetail(copy).getStatus()); assertNull(sales.getDetail(copy).getCustomerOrderNo());
+        var copied = salesLines.selectPage(1,10,copy,null,null).getRecords().get(0);
+        assertNotEquals(lineId, copied.getLineId()); assertEquals(0, BigDecimal.ZERO.compareTo(copied.getShippedQty()));
+        assertEquals(0, new BigDecimal("1130").compareTo(sales.getDetail(copy).getTotalAmount()));
+        line.setUnitPrice(new BigDecimal("1"));
+        assertThrows(ServiceException.class, () -> salesLines.saveBatch(List.of(line)));
+    }
 
     @Test @Transactional
     void materialDuplicateCheckWorksForNewAndExistingMaterials() {

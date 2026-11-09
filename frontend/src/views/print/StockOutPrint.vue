@@ -2,10 +2,15 @@
   <div class="print-page" ref="printRef">
     <!-- 隐藏区域：打印按钮(仅屏幕显示，不打印) -->
     <div class="no-print" style="text-align:center; margin-bottom:12px;">
+      <el-checkbox v-model="settings.showSpec">规格</el-checkbox>
+      <el-checkbox v-model="settings.showRemark">备注</el-checkbox>
+      <el-checkbox v-model="settings.showSignature">签字栏</el-checkbox>
+      <span>每组明细行数：</span><el-input-number v-model="settings.rowsPerPage" :min="1" :max="30" :step="1" />
+      <el-button @click="saveSettings">保存本机模板</el-button>
       <el-button type="primary" @click="doPrint">打印</el-button>
     </div>
     <!-- A4 打印内容 -->
-    <div class="a4-page">
+    <div v-for="(page, pageIndex) in pages" :key="pageIndex" class="a4-page">
       <!-- 公司抬头 -->
       <div class="doc-header">
         <div class="doc-header-left">
@@ -55,27 +60,27 @@
               <th style="width:5%">序号</th>
               <th style="width:18%">物料编码</th>
               <th>物料名称</th>
-              <th style="width:14%">规格</th>
+              <th v-if="settings.showSpec" style="width:14%">规格</th>
               <th style="width:8%">单位</th>
               <th style="width:10%">数量</th>
-              <th style="width:14%">备注</th>
+              <th v-if="settings.showRemark" style="width:14%">备注</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(l, i) in displayLines" :key="i">
-              <td style="text-align:center">{{ i + 1 }}</td>
+            <tr v-for="(l, i) in page" :key="i">
+              <td style="text-align:center">{{ pageIndex * settings.rowsPerPage + i + 1 }}</td>
               <td>{{ l.materialCode || '' }}</td>
               <td>{{ l.materialName || '' }}</td>
-              <td>{{ l.specification || '' }}</td>
+              <td v-if="settings.showSpec">{{ l.specification || '' }}</td>
               <td style="text-align:center">{{ l.unit || '' }}</td>
               <td style="text-align:right">{{ l.quantity ?? '' }}</td>
-              <td>{{ l.remark || '' }}</td>
+              <td v-if="settings.showRemark">{{ l.remark || '' }}</td>
             </tr>
           </tbody>
         </table>
         <!-- 签字栏 -->
-        <div class="section-title">签字确认</div>
-        <table class="sign-table">
+        <div v-if="settings.showSignature" class="section-title">签字确认</div>
+        <table v-if="settings.showSignature" class="sign-table">
           <tr>
             <td class="sign-label">制表</td>
             <td class="sign-blank"></td>
@@ -89,7 +94,7 @@
         </table>
         <div class="footer-note">
           <span>本出库单一式三联：仓库、财务、客户。</span>
-          <span>第1页/共1页 · 打印日期：{{ todayStr }}</span>
+          <span>明细组 {{ pageIndex + 1 }}/{{ pages.length }} · 打印日期：{{ todayStr }}</span>
         </div>
       </div>
     </div>
@@ -97,13 +102,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, onMounted, watch, computed, reactive } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { companyApi, stockOutApi } from '@/api/index'
 import { printCSS } from './printCSS'
 import type { CompanyProfile } from '@/types/models'
 
 const props = defineProps<{ order: any; visible: boolean }>()
+const emit = defineEmits<{ (e: 'confirmed'): void }>()
+const settings = reactive({ showSpec: true, showRemark: true, showSignature: true, rowsPerPage: 10 })
+try {
+  const saved = JSON.parse(localStorage.getItem('stockOutPrintTemplate') || '{}')
+  for (const key of ['showSpec', 'showRemark', 'showSignature'] as const) if (typeof saved[key] === 'boolean') settings[key] = saved[key]
+  if (Number.isInteger(saved.rowsPerPage) && saved.rowsPerPage >= 1 && saved.rowsPerPage <= 30) settings.rowsPerPage = saved.rowsPerPage
+} catch { /* use defaults */ }
+function saveSettings() { localStorage.setItem('stockOutPrintTemplate', JSON.stringify(settings)); ElMessage.success('打印模板已保存在当前浏览器') }
 const company = ref<CompanyProfile | null>(null)
 const detailLines = ref<any[]>([])
 const printRef = ref<HTMLElement>()
@@ -134,6 +147,12 @@ const displayLines = computed(() => {
   if (detailLines.value && detailLines.value.length) return detailLines.value
   return Array.from({ length: 5 }, () => ({}))
 })
+const pages = computed(() => {
+  const size = Math.max(1, Math.min(30, Number(settings.rowsPerPage) || 10))
+  const groups = []
+  for (let i = 0; i < displayLines.value.length; i += size) groups.push(displayLines.value.slice(i, i + size))
+  return groups
+})
 
 const loadData = async () => {
   if (!props.order) return
@@ -157,10 +176,17 @@ const doPrint = () => {
   if (!el) return
   const win = window.open('', '_blank', 'width=900,height=700')
   if (!win) { ElMessage.warning('请允许弹窗以打印'); return }
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>打印</title><style>${printCSS()}</style></head><body>${el.innerHTML}</body></html>`)
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>打印</title><style>${printCSS()} .a4-page:not(:last-child){break-after:page}.data-table tr{break-inside:avoid}</style></head><body>${el.innerHTML}</body></html>`)
   win.document.close()
   win.focus()
-  setTimeout(() => { win.print(); win.close() }, 500)
+  setTimeout(async () => {
+    win.print(); win.close()
+    try {
+      await ElMessageBox.confirm('请确认纸质出库单已实际打印完成。取消打印时请选择取消。', '确认打印结果', { confirmButtonText: '已打印', cancelButtonText: '取消' })
+      await stockOutApi.confirmPrint(props.order.stockOutId)
+      emit('confirmed'); ElMessage.success('已记录打印确认')
+    } catch (e: any) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '记录打印状态失败') }
+  }, 500)
 }
 
 </script>

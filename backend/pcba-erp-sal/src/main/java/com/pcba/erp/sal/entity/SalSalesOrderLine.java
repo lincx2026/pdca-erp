@@ -29,6 +29,8 @@ public class SalSalesOrderLine implements Serializable {
     private BigDecimal shippedQty;
     private BigDecimal returnedQty;
     private BigDecimal unitPrice;
+    private String priceSource;
+    private Long customerPriceId;
     private BigDecimal taxRate;
     private BigDecimal taxAmount;
     private BigDecimal lineAmount;

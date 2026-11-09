@@ -20,6 +20,8 @@ public class WmsStockOut implements Serializable {
 
     @TableId(type = IdType.AUTO)
     private Long stockOutId;
+    private java.time.LocalDateTime printedAt;
+    private String printedBy;
 
     /** 出库单号 */
     private String orderNo;

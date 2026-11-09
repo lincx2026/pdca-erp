@@ -28,6 +28,12 @@ import java.util.Map;
 public class SalKittingController {
 
     private final ISalKittingService kittingService;
+
+    @PreAuthorize("@ps.hasAnyPermi('sal:kitting:list', 'sal:kitting:add')")
+    @GetMapping("/bom-options")
+    public R<List<Map<String, Object>>> bomOptions(@RequestParam Long soId, @RequestParam Long soLineId, @RequestParam(required = false) String keyword) {
+        return R.ok(kittingService.bomOptions(soId, soLineId, keyword));
+    }
     private final ISalKittingLineService lineService;
 
     @Operation(summary = "齐套单分页查询")

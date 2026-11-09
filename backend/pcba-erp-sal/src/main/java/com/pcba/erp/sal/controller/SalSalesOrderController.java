@@ -26,6 +26,14 @@ public class SalSalesOrderController {
     private final ISalSalesOrderService service;
     private final ISalSalesOrderLineService lineService;
 
+    @PreAuthorize("@ps.hasPermi('sal:order:add')")
+    @OperLog(title = "复制销售订单", businessType = 1)
+    @PostMapping("/{id}/copy")
+    public R<Long> copy(@PathVariable Long id, @RequestBody java.util.Map<String, Object> body) {
+        String date = body.get("deliveryDate") == null ? null : String.valueOf(body.get("deliveryDate"));
+        return R.ok(service.copy(id, Boolean.TRUE.equals(body.get("reprice")), (String) body.get("customerOrderNo"), date == null || date.isBlank() ? null : java.time.LocalDate.parse(date)));
+    }
+
     @Operation(summary = "分页查询")
     @PreAuthorize("@ps.hasPermi('sal:order:list')")
     @GetMapping("/list")

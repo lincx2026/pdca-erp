@@ -9,6 +9,7 @@ public interface ISalSalesOrderService {
     IPage<SalSalesOrder> selectPage(int pageNum, int pageSize, String soNo, String soType, Long customerId, String customerName, Long salesRepId, Integer status, String deliveryDate);
     SalSalesOrder getDetail(Long id);
     Long save(SalSalesOrder entity);
+    Long copy(Long id, boolean reprice, String customerOrderNo, java.time.LocalDate deliveryDate);
     boolean update(SalSalesOrder entity);
     boolean remove(Long id);
     boolean changeStatus(Long id, Integer status);

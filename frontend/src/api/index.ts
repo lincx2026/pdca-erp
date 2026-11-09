@@ -370,6 +370,7 @@ export interface StockOutListQ extends PageQ {
   status?: number
 }
 export const stockOutApi = {
+  confirmPrint: (id: number) => request.post(`/wms/stock-out/${id}/print-confirmation`),
   list:    (p: StockOutListQ) => request.get<{ rows: WmsStockOut[]; total: number }>('/wms/stock-out/list', p) as any,
   get:     (id: number) => request.get<WmsStockOut>('/wms/stock-out/' + id),
   nextNo:  () => request.get<string>('/wms/stock-out/next-no'),
@@ -408,6 +409,8 @@ export const workOrderApi = {
 }
 
 export const workInstructionApi = {
+  templates: () => request.get<any[]>('/pm/work-order/instruction-templates'),
+  publishTemplate: (id: number, name: string) => request.post<number>(`/pm/work-order/${id}/instruction-template`, { name }),
   get: (id: number) => request.get<any>(`/pm/work-order/${id}/instruction`),
   save: (id: number, data: object) => request.put(`/pm/work-order/${id}/instruction`, data),
   attachments: (id: number) => request.get<any[]>(`/pm/work-order/${id}/instruction/attachments`),
@@ -1040,6 +1043,7 @@ export interface SalOrderListQ extends PageQ {
   deliveryDate?: string
 }
 export const salOrderApi = {
+  copy: (id: number, body: { reprice: boolean; customerOrderNo?: string; deliveryDate?: string }) => request.post<number>(`/sal/order/${id}/copy`, body),
   list:    (p: SalOrderListQ) => request.get<{ rows: SalSalesOrder[]; total: number }>('/sal/order/list', p) as any,
   get:     (id: number) => request.get<SalSalesOrder>('/sal/order/' + id),
   options: () => request.get<SalSalesOrder[]>('/sal/order/options') as any,
@@ -1070,6 +1074,7 @@ export interface SalKittingListQ extends PageQ {
   bomId?: number
 }
 export const salKittingApi = {
+  bomOptions: (soId: number, soLineId: number, keyword = '') => request.get<any[]>('/sal/kitting/bom-options', { soId, soLineId, keyword }),
   list:        (p: SalKittingListQ) => request.get<{ rows: SalKitting[]; total: number }>('/sal/kitting/list', p) as any,
   get:         (id: number) => request.get<SalKitting>('/sal/kitting/' + id),
   nextCode:    () => request.get<string>('/sal/kitting/next-code'),

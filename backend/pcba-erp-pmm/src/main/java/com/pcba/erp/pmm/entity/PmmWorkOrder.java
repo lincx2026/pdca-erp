@@ -33,6 +33,9 @@ public class PmmWorkOrder implements Serializable {
     @NotNull(message = "成品物料ID不能为空")
     private Long materialId;
 
+    @TableField(exist = false)
+    private Long instructionTemplateId;
+
     @Size(max = 50)
     private String materialCode;
 

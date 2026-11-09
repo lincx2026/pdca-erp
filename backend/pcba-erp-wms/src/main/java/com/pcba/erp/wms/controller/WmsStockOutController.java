@@ -19,6 +19,19 @@ import org.springframework.web.bind.annotation.*;
 public class WmsStockOutController {
 
     private final IWmsStockOutService stockOutService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @PostMapping("/{id}/print-confirmation")
+    @PreAuthorize("@ps.hasPermi('wms:stockout:list')")
+    @OperLog(title = "确认出库单已打印", businessType = 1)
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public R<Void> confirmPrint(@PathVariable Long id) {
+        String user = com.pcba.erp.common.core.utils.SecurityUtils.getUsernameSafe();
+        int count = jdbc.update("UPDATE wms_stock_out SET printed_at=CURRENT_TIMESTAMP, printed_by=? WHERE stock_out_id=?", user, id);
+        if (count != 1) return R.fail("出库单不存在");
+        jdbc.update("INSERT INTO wms_stock_out_print_log(stock_out_id,confirmed_by) VALUES (?,?)", id, user);
+        return R.ok();
+    }
 
     /* ============== 列表/详情 ============== */
 

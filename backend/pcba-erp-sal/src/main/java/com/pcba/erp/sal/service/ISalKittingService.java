@@ -11,6 +11,7 @@ import java.util.List;
  * - 核心动作: 齐套检查(展开BOM×套数→查库存) / 生成出库 / 生成请购
  */
 public interface ISalKittingService {
+    java.util.List<java.util.Map<String, Object>> bomOptions(Long soId, Long soLineId, String keyword);
 
     IPage<SalKitting> selectPage(int pageNum, int pageSize,
                                  String kittingNo, String soNo,

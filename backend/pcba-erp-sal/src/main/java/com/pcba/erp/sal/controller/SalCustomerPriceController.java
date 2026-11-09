@@ -137,7 +137,7 @@ public class SalCustomerPriceController {
     public R<Integer> setDefault(@PathVariable Long id) { return service.setDefault(id) ? R.ok(1) : R.fail("设置失败"); }
 
     @Operation(summary = "SO下单带价: 按客户+物料+数量+日期匹配最优生效价")
-    @PreAuthorize("@ps.hasPermi('sal:price:list')")
+    @PreAuthorize("@ps.hasAnyPermi('sal:price:list', 'sal:order:list')")
     @GetMapping("/match")
     public R<SalCustomerPrice> match(@RequestParam Long customerId,
                                      @RequestParam Long materialId,

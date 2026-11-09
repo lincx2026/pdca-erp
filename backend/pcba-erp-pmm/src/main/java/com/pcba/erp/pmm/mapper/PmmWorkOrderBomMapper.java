@@ -29,8 +29,8 @@ public interface PmmWorkOrderBomMapper extends BaseMapper<PmmWorkOrderBom> {
                                       @Param("materialCode") String materialCode,
                                       @Param("materialName") String materialName);
 
-    @Select("SELECT COUNT(*) FROM pmm_work_order_bom WHERE work_order_id=#{workOrderId} AND line_no=#{lineNo} " +
-            "AND (#{bomLineId} IS NULL OR bom_line_id != #{bomLineId})")
+    @Select("<script>SELECT COUNT(*) FROM pmm_work_order_bom WHERE work_order_id=#{workOrderId} AND line_no=#{lineNo} " +
+            "<if test='bomLineId != null'>AND bom_line_id != #{bomLineId}</if></script>")
     int countDuplicateLine(@Param("workOrderId") Long workOrderId,
                            @Param("lineNo") Integer lineNo,
                            @Param("bomLineId") Long bomLineId);

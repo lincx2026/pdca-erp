@@ -40,6 +40,43 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
     private final IWmsStockOutService wmsStockOutService;
     private final JdbcTemplate jdbcTemplate;
     @Lazy private final ISalArReceivableService receivableService;
+    @Lazy private final com.pcba.erp.sal.service.ISalCustomerPriceService customerPrices;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long copy(Long id, boolean reprice, String customerOrderNo, LocalDate deliveryDate) {
+        SalSalesOrder original = getDetail(id);
+        SalSalesOrder copy = new SalSalesOrder();
+        org.springframework.beans.BeanUtils.copyProperties(original, copy);
+        copy.setSoId(null); copy.setSoNo(null); copy.setCustomerOrderNo(customerOrderNo == null ? null : customerOrderNo.trim());
+        copy.setSoDate(LocalDate.now()); copy.setDeliveryDate(deliveryDate); copy.setSourceType("MANUAL"); copy.setSourceRef(null);
+        copy.setStatus(0); copy.setStockOutId(null); copy.setReceivedAmount(BigDecimal.ZERO); copy.setAuditBy(null); copy.setAuditTime(null);
+        copy.setRejectReason(null); copy.setCloseReason(null); copy.setCreateBy(null); copy.setCreateTime(null); copy.setUpdateBy(null); copy.setUpdateTime(null);
+        copy.setTotalAmount(BigDecimal.ZERO); copy.setUndiscAmount(BigDecimal.ZERO); copy.setTaxAmount(BigDecimal.ZERO);
+        Long newId = save(copy);
+        List<SalSalesOrderLine> lines = lineMapper.selectList(new LambdaQueryWrapper<SalSalesOrderLine>().eq(SalSalesOrderLine::getSoId, id).orderByAsc(SalSalesOrderLine::getLineNo));
+        BigDecimal total = BigDecimal.ZERO, untaxed = BigDecimal.ZERO, tax = BigDecimal.ZERO;
+        for (SalSalesOrderLine originalLine : lines) {
+            SalSalesOrderLine line = new SalSalesOrderLine(); org.springframework.beans.BeanUtils.copyProperties(originalLine, line);
+            line.setLineId(null); line.setSoId(newId); line.setShippedQty(BigDecimal.ZERO); line.setReturnedQty(BigDecimal.ZERO);
+            line.setCreateBy(null); line.setCreateTime(null); line.setUpdateBy(null); line.setUpdateTime(null); line.setRequiredDate(deliveryDate);
+            line.setPriceSource("COPY"); line.setCustomerPriceId(null);
+            if (reprice) {
+                var quote = customerPrices.matchPrice(copy.getCustomerId(), line.getMaterialId(), line.getOrderQty(), copy.getSoDate());
+                if (quote == null || !Objects.equals(quote.getCurrency(), copy.getCurrency())) throw new ServiceException("物料 " + line.getMaterialCode() + " 没有适用的客户报价，无法重新匹配");
+                line.setUnitPrice(quote.getUntaxedUnitPrice() == null ? quote.getUnitPrice() : quote.getUntaxedUnitPrice());
+                line.setTaxRate(quote.getTaxRate() == null ? BigDecimal.ZERO : quote.getTaxRate().divide(new BigDecimal("100")));
+                line.setPriceSource("QUOTE"); line.setCustomerPriceId(quote.getPriceId());
+            }
+            BigDecimal base = line.getOrderQty().multiply(line.getUnitPrice()).multiply(BigDecimal.ONE.subtract(line.getDiscountRate() == null ? BigDecimal.ZERO : line.getDiscountRate()));
+            BigDecimal lineTax = base.multiply(line.getTaxRate() == null ? BigDecimal.ZERO : line.getTaxRate()).setScale(2, java.math.RoundingMode.HALF_UP);
+            line.setTaxAmount(lineTax); line.setLineAmount(base.add(lineTax).setScale(2, java.math.RoundingMode.HALF_UP));
+            untaxed = untaxed.add(line.getOrderQty().multiply(line.getUnitPrice())); tax = tax.add(lineTax); total = total.add(line.getLineAmount());
+            lineMapper.insert(line);
+        }
+        copy.setSoId(newId); copy.setUndiscAmount(untaxed); copy.setTaxAmount(tax); copy.setTotalAmount(total); mapper.updateById(copy);
+        return newId;
+    }
 
     @Override
     public IPage<SalSalesOrder> selectPage(int pageNum, int pageSize, String soNo, String soType, Long customerId, String customerName, Long salesRepId, Integer status, String deliveryDate) {

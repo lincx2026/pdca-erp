@@ -32,6 +32,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'pdm/category',         name: 'Category',       component: () => import('@/views/pdm/category/index.vue'),   meta: { title: '电子物料分类', icon: 'Collection', perms: ['pdm:category:list'], scope: 'elec' } },
       { path: 'pdm/material',         name: 'Material',       component: () => import('@/views/pdm/material/index.vue'),   meta: { title: '电子物料',     icon: 'Goods',      perms: ['pdm:material:list'], scope: 'elec' } },
       { path: 'pdm/bom',              name: 'Bom',            component: () => import('@/views/pdm/bom/index.vue'),           meta: { title: 'PCBA BOM',     icon: 'Guide',      perms: ['pdm:bom:list'] } },
+      { path: 'sal/sales-bom',        name: 'SalesBom',       component: () => import('@/views/pdm/bom/index.vue'),           meta: { title: '销售BOM', icon: 'Grid', perms: ['pdm:bom:list'] } },
       { path: 'pdm/process',          name: 'Process',        component: () => import('@/views/pdm/process/index.vue'),   meta: { title: 'SMT工艺路线',    icon: 'Tools',     perms: ['pdm:process:list'] } },
       { path: 'pdm/custmap',          name: 'CustMap',        component: () => import('@/views/pdm/custmap/index.vue'),   meta: { title: '客户料号',       icon: 'Link',      perms: ['pdm:custmap:list'] } },
       //   成品产品开发: 管成品物料分类/成品物料管理/成品 BOM/组装工艺/成品料号映射

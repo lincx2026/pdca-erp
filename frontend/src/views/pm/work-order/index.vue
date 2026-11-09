@@ -106,6 +106,13 @@
     <el-dialog v-model="editDlg.show" :title="editDlg.isNew ? '新增生产工单' : '修改生产工单'" width="760px" destroy-on-close>
       <el-form :model="editDlg.form" :rules="editRules" ref="editFormRef" label-width="100px">
         <el-row :gutter="16">
+          <el-col v-if="editDlg.isNew" :span="24">
+            <el-form-item label="型号指令">
+              <el-select v-model="selectedTemplate" clearable filterable placeholder="选择已维护的型号指令，可自动带入物料和图文资料" style="width:100%" @change="onTemplateChange">
+                <el-option v-for="t in instructionTemplates" :key="t.templateId" :value="t.templateId" :label="`${t.name} · ${t.materialCode} ${t.materialName}`" />
+              </el-select>
+            </el-form-item>
+          </el-col>
           <el-col :span="12">
             <el-form-item label="来源类型" prop="sourceType">
               <el-select v-model="editDlg.form.sourceType" placeholder="选择来源类型" style="width:100%">
@@ -277,7 +284,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { workOrderApi, materialApi, bomApi, processRouteApi, salOrderApi, companyApi } from '@/api'
+import { workOrderApi, workInstructionApi, materialApi, bomApi, processRouteApi, salOrderApi, companyApi } from '@/api'
 import type { PmmWorkOrder, PdmMaterial, PdmBom, PdmProcessRoute, SalSalesOrder, SalSalesOrderLine, CompanyFactory } from '@/types/models'
 import WorkOrderPrint from '@/views/print/WorkOrderPrint.vue'
 import ProductionInstruction from './ProductionInstruction.vue'
@@ -395,6 +402,7 @@ const editRules = {
 
 // 物料选择变更：自动回填 unit / 物料信息
 function onMaterialChange(materialId?: number) {
+  if (selectedTemplate.value && instructionTemplates.value.find(t => t.templateId === selectedTemplate.value)?.materialId !== materialId) selectedTemplate.value = undefined
   if (!materialId) return
   const m = materialOptions.value.find(x => x.materialId === materialId)
   if (m) {
@@ -411,10 +419,17 @@ function onBomChange(_bomId?: number) { /* 预留 */ }
 // 工艺路线选择变更：暂无额外字段回填
 function onRouteChange(_routeId?: number) { /* 预留 */ }
 
-function openAdd() {
+const instructionTemplates = ref<any[]>([]), selectedTemplate = ref<number>()
+function onTemplateChange(id?: number) {
+  const template = instructionTemplates.value.find(t => t.templateId === id)
+  if (template) { editDlg.form.materialId = template.materialId; onMaterialChange(template.materialId) }
+}
+async function openAdd() {
   editDlg.isNew = true
   editDlg.form = { sourceType: 'MTO', orderQty: 1, unit: 'PCS', priority: 0 }
+  selectedTemplate.value = undefined
   editDlg.show = true
+  try { instructionTemplates.value = await workInstructionApi.templates() || [] } catch { ElMessage.error('型号指令加载失败') }
 }
 async function openEdit(row: PmmWorkOrder) {
   editDlg.isNew = false
@@ -429,7 +444,7 @@ async function submitEdit() {
   await editFormRef.value?.validate()
   editDlg.saving = true
   try {
-    if (editDlg.isNew) { await workOrderApi.add(editDlg.form); ElMessage.success('新增成功') }
+    if (editDlg.isNew) { await workOrderApi.add({ ...editDlg.form, instructionTemplateId: selectedTemplate.value } as any); ElMessage.success('新增成功') }
     else { await workOrderApi.edit(editDlg.form); ElMessage.success('修改成功') }
     editDlg.show = false; loadList()
   } catch (e: any) { ElMessage.error(e.message || '保存失败') }

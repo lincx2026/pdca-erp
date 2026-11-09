@@ -53,6 +53,7 @@
       <el-table-column label="操作" width="560" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
+          <el-button v-hasPermi="'sal:order:add'" size="small" link type="primary" @click="openCopy(row)">复制</el-button>
           <el-button v-hasPermi="'sal:order:list'" size="small" link @click="onView(row)">详情</el-button>
           <el-button v-hasPermi="'wms:stockout:list'" size="small" link type="primary" @click="router.push({ path: '/sal/stock-out', query: { saleOrderNo: row.soNo } })">出库记录</el-button>
           <el-button v-if="canEdit(row)" v-hasPermi="'sal:order:edit'" size="small" link type="primary" @click="openDialog(row)">编辑</el-button>
@@ -229,18 +230,28 @@
 
     <el-dialog v-model="salesBatchDialog" title="批量选择销售物料" width="900px" destroy-on-close>
       <el-input v-model="salesBatchKeyword" placeholder="输入编码、名称、规格或关键词" clearable @keyup.enter="searchSalesBatch"><template #append><el-button @click="searchSalesBatch">查询</el-button></template></el-input>
-      <el-table :data="salesBatchOptions" row-key="materialId" @selection-change="salesBatchSelection = $event" max-height="300" border>
+      <el-table :data="salesBatchOptions" row-key="materialId" @selection-change="onSalesBatchSelection" max-height="300" border>
         <el-table-column type="selection" width="50" :reserve-selection="true" /><el-table-column prop="materialCode" label="编码" width="140" /><el-table-column prop="materialName" label="名称" />
         <el-table-column prop="specification" label="规格" show-overflow-tooltip /><el-table-column prop="searchKeywords" label="关键词" show-overflow-tooltip />
       </el-table>
       <el-pagination v-model:current-page="salesBatchPage" :page-size="50" :total="salesBatchTotal" layout="total, prev, pager, next" @current-change="searchSalesBatch" />
       <el-table :data="salesBatchSelection" max-height="260" border><el-table-column prop="materialCode" label="已选物料" /><el-table-column prop="materialName" label="名称" />
-        <el-table-column label="数量" width="190"><template #default="{ row }"><el-input-number v-model="row.batchQty" :min="0.0001" :precision="4" /></template></el-table-column>
-        <el-table-column label="销售单价" width="190"><template #default="{ row }"><el-input-number v-model="row.batchPrice" :min="0" :precision="4" placeholder="必填" /></template></el-table-column>
+        <el-table-column label="数量" width="180"><template #default="{ row }"><el-input-number v-model="row.batchQty" :min="0.0001" :precision="4" @change="matchBatchPrice(row)" /></template></el-table-column>
+        <el-table-column label="未税单价" width="180"><template #default="{ row }"><el-input-number v-model="row.batchPrice" :disabled="row.batchLoading" :min="0" :precision="4" placeholder="必填" @change="markBatchManual(row)" /></template></el-table-column>
+        <el-table-column label="价格来源" width="120"><template #default="{ row }">{{ row.batchLoading ? '匹配中' : row.batchSource === 'QUOTE' ? '客户报价' : row.batchSource === 'MANUAL' ? '手工填写' : '未匹配' }}</template></el-table-column>
+        <el-table-column label="含税金额" width="120"><template #default="{ row }">{{ row.batchPrice == null ? '—' : (Number(row.batchQty || 0) * Number(row.batchPrice) * (1 + Number(row.batchTaxRate || 0))).toFixed(2) }}</template></el-table-column>
       </el-table>
       <template #footer><el-button @click="salesBatchDialog = false">取消</el-button><el-button type="primary" :loading="salesBatchSaving" :disabled="!salesBatchSelection.length" @click="saveSalesBatch">加入订单</el-button></template>
     </el-dialog>
 
+    <el-dialog v-model="copyDialog" title="复制销售订单" width="520px">
+      <el-form label-width="120px"><el-form-item label="原订单">{{ copyOriginal?.soNo }}</el-form-item>
+        <el-form-item label="客户订单号"><el-input v-model="copyOptions.customerOrderNo" placeholder="新订单客户单号" maxlength="100" /></el-form-item>
+        <el-form-item label="交付日期"><el-date-picker v-model="copyOptions.deliveryDate" type="date" value-format="YYYY-MM-DD" /></el-form-item>
+        <el-form-item label="单价来源"><el-radio-group v-model="copyOptions.reprice"><el-radio :value="false">沿用原单价格</el-radio><el-radio :value="true">匹配当前客户报价</el-radio></el-radio-group></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="copyDialog=false">取消</el-button><el-button type="primary" :loading="copySaving" @click="submitCopy">复制为草稿</el-button></template>
+    </el-dialog>
     <el-dialog v-model="lineDialog" :title="lineDialogTitle" width="600px" destroy-on-close top="10vh">
       <el-form ref="lineFormRef" :model="lineForm" :rules="lineRules" label-width="90px">
         <el-form-item label="物料" prop="materialId">
@@ -273,7 +284,7 @@
           <el-col :span="12">
             <el-form-item label="行金额">
               <el-input-number v-model="lineForm.lineAmount" :min="0" :precision="2" controls-position="right" style="width:100%" />
-              <div style="color:var(--el-text-color-secondary); font-size:12px; margin-top:2px;">默认 = 数量 × 单价 × (1 - 折扣率)</div>
+              <div style="color:var(--el-text-color-secondary); font-size:12px; margin-top:2px;">含税金额 = 数量 × 未税单价 × (1 - 折扣率) + 税额</div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -316,6 +327,16 @@ defineOptions({ name: 'SalOrderPage' })
 
 const userStore = useUserStore()
 const router = useRouter()
+const copyDialog = ref(false), copySaving = ref(false), copyOriginal = ref<SalSalesOrder | null>(null)
+const copyOptions = reactive({ customerOrderNo: '', deliveryDate: '', reprice: false })
+function openCopy(row: SalSalesOrder) { copyOriginal.value = row; Object.assign(copyOptions, { customerOrderNo: '', deliveryDate: '', reprice: false }); copyDialog.value = true }
+async function submitCopy() {
+  if (!copyOriginal.value?.soId) return
+  copySaving.value = true
+  try { await salOrderApi.copy(copyOriginal.value.soId, copyOptions); copyDialog.value = false; ElMessage.success('已复制为草稿，请核对后提交'); await loadList(1) }
+  catch (e: any) { ElMessage.error(e?.message || '复制失败') }
+  finally { copySaving.value = false }
+}
 function hasPermission(p: string) { return hasPerm(p, userStore.userInfo?.permissions) }
 function hasPermOrThrow(p: string) { if (!hasPermission(p)) throw new Error('无此操作权限: ' + p); return true }
 
@@ -413,6 +434,32 @@ const creditLoading = ref(false)
 const materialOptions = ref<any[]>([])
 const salesBatchDialog = ref(false), salesBatchSaving = ref(false), salesBatchKeyword = ref(''), salesBatchPage = ref(1), salesBatchTotal = ref(0)
 const salesBatchOptions = ref<any[]>([]), salesBatchSelection = ref<any[]>([])
+function onSalesBatchSelection(rows: any[]) {
+  salesBatchSelection.value = rows
+  for (const row of rows) {
+    if (row.batchQty == null) { row.batchQty = 1; void matchBatchPrice(row) }
+  }
+}
+function markBatchManual(row: any) { if (!row.batchLoading && !(row.batchSource === 'QUOTE' && Number(row.batchPrice) === row.batchQuotedPrice)) { row.batchSource = 'MANUAL'; row.batchPriceId = undefined; row.batchTaxRate = Number(linesOwner.value?.taxRate || 0) } }
+async function matchBatchPrice(row: any) {
+  const customerId = linesOwner.value?.customerId
+  const qty = Number(row.batchQty)
+  const sequence = row.batchSequence = (row.batchSequence || 0) + 1
+  if (!customerId || !(qty > 0)) return
+  row.batchLoading = true
+  try {
+    const result: any = await salPriceApi.match(customerId, row.materialId, qty, linesOwner.value?.soDate)
+    if (sequence !== row.batchSequence) return
+    const price = result?.data || result
+    if (price?.priceId && price.currency === (linesOwner.value?.currency || 'CNY')) {
+      row.batchPrice = Number(price.untaxedUnitPrice ?? price.unitPrice)
+      row.batchQuotedPrice = row.batchPrice
+      row.batchTaxRate = Number(price.taxRate || 0) / 100
+      row.batchPriceId = price.priceId; row.batchSource = 'QUOTE'
+    } else { row.batchPrice = undefined; row.batchPriceId = undefined; row.batchSource = 'MISSING'; row.batchTaxRate = Number(linesOwner.value?.taxRate || 0) }
+  } catch { if (sequence === row.batchSequence) { row.batchPrice = undefined; row.batchSource = 'MISSING'; ElMessage.error(`物料 ${row.materialCode} 报价匹配失败`) } }
+  finally { if (sequence === row.batchSequence) row.batchLoading = false }
+}
 async function searchSalesBatch() {
   try { const result = await materialApi.search(salesBatchKeyword.value, salesBatchPage.value, 50) as any; salesBatchOptions.value = result?.rows || []; salesBatchTotal.value = result?.total || 0 }
   catch (e: any) { ElMessage.error(e?.message || '物料搜索失败') }
@@ -423,10 +470,10 @@ async function openSalesBatch() {
 }
 async function saveSalesBatch() {
   if (!linesOwner.value?.soId) return
-  if (salesBatchSelection.value.some(m => !(Number(m.batchQty) > 0) || m.batchPrice == null || Number(m.batchPrice) < 0)) { ElMessage.warning('请为每项填写数量和销售单价'); return }
+  if (salesBatchSelection.value.some(m => m.batchLoading || !(Number(m.batchQty) > 0) || m.batchPrice == null || Number(m.batchPrice) < 0)) { ElMessage.warning('请等待报价匹配并为每项填写数量和销售单价'); return }
   salesBatchSaving.value = true
   try {
-    await salOrderApi.addLines(salesBatchSelection.value.map(m => ({ soId: linesOwner.value!.soId, materialId: m.materialId, orderQty: Number(m.batchQty), unitPrice: Number(m.batchPrice), requiredDate: linesOwner.value!.deliveryDate })))
+    await salOrderApi.addLines(salesBatchSelection.value.map(m => ({ soId: linesOwner.value!.soId, materialId: m.materialId, orderQty: Number(m.batchQty), unitPrice: Number(m.batchPrice), priceSource: m.batchSource, customerPriceId: m.batchPriceId, requiredDate: linesOwner.value!.deliveryDate } as any)))
     salesBatchDialog.value = false; ElMessage.success('销售明细已新增'); await onViewLines(linesOwner.value)
   } catch (e: any) { ElMessage.error(e?.message || '批量新增失败') }
   finally { salesBatchSaving.value = false }
@@ -678,8 +725,8 @@ function recalcLineAmount() {
   const d = Number(lineForm.discountRate ?? 0)
   const tr = Number(lineForm.taxRate ?? 0)
   const line = q * p * (1 - d)
-  lineForm.lineAmount = Number(line.toFixed(2))
   lineForm.taxAmount = Number((line * tr).toFixed(2))
+  lineForm.lineAmount = Number((line + Number(lineForm.taxAmount)).toFixed(2))
 }
 // SO下单带价: 数量变化重算 + 按客户+物料+数量匹配生效客户价(阶梯/is_default优先)
 function onQtyChange() {
@@ -702,12 +749,12 @@ async function onLineMatchPrice() {
   const qty = Number(lineForm.orderQty ?? 0)
   if (!cid || !mid) return
   try {
-    const resp = await salPriceApi.match(cid, mid, qty) as any
-    const p = resp?.data
-    if (p && p.priceId) {
+    const resp = await salPriceApi.match(cid, mid, qty, linesOwner.value?.soDate) as any
+    const p = resp?.data || resp
+    if (p && p.priceId && p.currency === (linesOwner.value?.currency || 'CNY')) {
       // 报价含税单价 → 订单行未税单价
       lineForm.unitPrice = Number(p.untaxedUnitPrice ?? p.unitPrice)
-      lineForm.taxRate = Number(p.taxRate)
+      lineForm.taxRate = Number(p.taxRate || 0) / 100
       if (p.materialCode) lineForm.materialCode = p.materialCode
       if (p.materialName) lineForm.materialName = p.materialName
       if (p.specification) lineForm.specification = p.specification

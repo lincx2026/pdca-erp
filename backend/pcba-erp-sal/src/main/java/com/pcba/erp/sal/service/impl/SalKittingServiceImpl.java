@@ -60,6 +60,22 @@ public class SalKittingServiceImpl implements ISalKittingService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
+    @Override
+    public List<Map<String, Object>> bomOptions(Long soId, Long soLineId, String keyword) {
+        if (soId == null || soLineId == null) return List.of();
+        String term = keyword == null ? "" : keyword.trim();
+        return jdbcTemplate.queryForList("SELECT b.bom_id AS \"bomId\", b.bom_code AS \"bomCode\", b.bom_name AS \"bomName\", b.version, b.kit_model AS \"kitModel\", b.product_material_id AS \"productMaterialId\", b.product_material_code AS \"productMaterialCode\", b.product_material_name AS \"productMaterialName\" FROM pdm_bom b JOIN sal_sales_order_line l ON l.material_id=b.product_material_id JOIN sal_sales_order s ON s.so_id=l.so_id WHERE s.so_id=? AND l.line_id=? AND b.bom_type=3 AND b.status=2 AND (b.customer_id IS NULL OR b.customer_id=s.customer_id) AND (LOWER(b.bom_code) LIKE ? OR LOWER(b.bom_name) LIKE ? OR LOWER(COALESCE(b.kit_model,'')) LIKE ?) ORDER BY b.is_default DESC, b.bom_id DESC LIMIT 100", soId, soLineId, "%" + term.toLowerCase(java.util.Locale.ROOT) + "%", "%" + term.toLowerCase(java.util.Locale.ROOT) + "%", "%" + term.toLowerCase(java.util.Locale.ROOT) + "%");
+    }
+
+    private void validateOrderBom(SalKitting entity) {
+        if (entity.getSoId() == null || entity.getSoLineId() == null || entity.getBomId() == null) throw new ServiceException("请选择销售订单、订单明细和销售BOM");
+        Integer matches = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pdm_bom b JOIN sal_sales_order_line l ON l.material_id=b.product_material_id JOIN sal_sales_order s ON s.so_id=l.so_id WHERE s.so_id=? AND l.line_id=? AND b.bom_id=? AND b.bom_type=3 AND b.status=2 AND (b.customer_id IS NULL OR b.customer_id=s.customer_id)", Integer.class, entity.getSoId(), entity.getSoLineId(), entity.getBomId());
+        if (matches == null || matches == 0) throw new ServiceException("销售BOM未启用或与订单客户、物料不匹配");
+        SalSalesOrder order = salesOrderService.getDetail(entity.getSoId());
+        entity.setCustomerId(order.getCustomerId());
+        entity.setSoNo(order.getSoNo());
+    }
+
     // ============ CRUD ============
 
     @Override
@@ -81,6 +97,7 @@ public class SalKittingServiceImpl implements ISalKittingService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long save(SalKitting entity) {
+        validateOrderBom(entity);
         if (entity.getStatus() == null) entity.setStatus(0);
         if (entity.getKitQty() == null) entity.setKitQty(BigDecimal.ONE);
         if (entity.getKittingNo() == null || entity.getKittingNo().isEmpty()) {
@@ -114,6 +131,10 @@ public class SalKittingServiceImpl implements ISalKittingService {
         if (!Integer.valueOf(0).equals(s) && !Integer.valueOf(5).equals(s)) {
             throw new ServiceException("当前状态不允许修改");
         }
+        if (entity.getSoId() == null) entity.setSoId(old.getSoId());
+        if (entity.getSoLineId() == null) entity.setSoLineId(old.getSoLineId());
+        if (entity.getBomId() == null) entity.setBomId(old.getBomId());
+        validateOrderBom(entity);
         if (entity.getKittingNo() != null) {
             int dup = kittingMapper.countDuplicate(entity.getKittingNo(), entity.getKittingId());
             if (dup > 0) throw new ServiceException("齐套单号已存在");

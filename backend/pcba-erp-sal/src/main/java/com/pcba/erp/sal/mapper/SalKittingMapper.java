@@ -44,8 +44,8 @@ public interface SalKittingMapper extends BaseMapper<SalKitting> {
                                   @Param("status") Integer status,
                                   @Param("bomId") Long bomId);
 
-    @Select("SELECT COUNT(*) FROM sal_kitting WHERE kitting_no = #{kittingNo} " +
-            "AND (#{kittingId} IS NULL OR kitting_id != #{kittingId})")
+    @Select("<script>SELECT COUNT(*) FROM sal_kitting WHERE kitting_no = #{kittingNo} " +
+            "<if test='kittingId != null'>AND kitting_id != #{kittingId}</if></script>")
     int countDuplicate(@Param("kittingNo") String kittingNo, @Param("kittingId") Long kittingId);
 
     /** 跨仓库/批次汇总某物料的可用库存总量 */

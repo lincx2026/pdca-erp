@@ -122,4 +122,43 @@ public class WorkInstructionService {
     }
 
     public InputStream open(Map<String, Object> attachment) { return oss.download((String) attachment.get("object_key")); }
+
+    public List<Map<String, Object>> templates() {
+        return jdbc.queryForList("SELECT t.template_id AS \"templateId\", t.material_id AS \"materialId\", t.name, m.material_code AS \"materialCode\", m.material_name AS \"materialName\" FROM pmm_instruction_template t JOIN pdm_material m ON m.material_id=t.material_id ORDER BY t.template_id DESC LIMIT 500");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Long publishTemplate(Long orderId, String name) {
+        var order = orders.selectById(orderId);
+        if (order == null) throw new ServiceException("工单不存在");
+        if (name == null || name.isBlank() || name.length() > 200) throw new ServiceException("请填写型号指令名称");
+        var rows = jdbc.queryForList("SELECT content::text AS content FROM pmm_work_instruction WHERE work_order_id=?", orderId);
+        if (rows.isEmpty()) throw new ServiceException("请先保存工单生产指令");
+        var files = jdbc.queryForList("SELECT attachment_id, file_name, object_key, content_type, file_size, kind FROM pmm_work_instruction_attachment WHERE work_order_id=?", orderId);
+        try {
+            return jdbc.queryForObject("INSERT INTO pmm_instruction_template(material_id,name,content,attachments,created_by) VALUES (?,?,CAST(? AS jsonb),CAST(? AS jsonb),?) RETURNING template_id", Long.class, order.getMaterialId(), name.trim(), rows.get(0).get("content"), json.writeValueAsString(files), SecurityUtils.getUsernameSafe());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new ServiceException("型号指令保存失败"); }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void applyTemplate(Long orderId, Long templateId) {
+        var order = orders.selectById(orderId);
+        if (order == null) throw new ServiceException("工单不存在");
+        var rows = jdbc.queryForList("SELECT content::text AS content, attachments::text AS attachments FROM pmm_instruction_template WHERE template_id=? AND material_id=?", templateId, order.getMaterialId());
+        if (rows.isEmpty()) throw new ServiceException("型号指令不存在或与工单物料不匹配");
+        try {
+            var instruction = json.readValue((String) rows.get(0).get("content"), PmmWorkInstruction.class);
+            var files = json.readValue((String) rows.get(0).get("attachments"), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String,Object>>>() {});
+            Map<Long, Long> ids = new java.util.HashMap<>();
+            for (var file : files) {
+                Long newId = jdbc.queryForObject("INSERT INTO pmm_work_instruction_attachment(work_order_id,file_name,object_key,content_type,file_size,kind,created_by) VALUES (?,?,?,?,?,?,?) RETURNING attachment_id", Long.class, orderId, file.get("file_name"), file.get("object_key"), file.get("content_type"), file.get("file_size"), file.get("kind"), SecurityUtils.getUsernameSafe());
+                ids.put(((Number) file.get("attachment_id")).longValue(), newId);
+            }
+            if (instruction.getProductImageId() != null) instruction.setProductImageId(ids.get(instruction.getProductImageId()));
+            if (instruction.getFirmwareAttachmentId() != null) instruction.setFirmwareAttachmentId(ids.get(instruction.getFirmwareAttachmentId()));
+            if (instruction.getItems() != null) for (var item : instruction.getItems()) if (item.getImageId() != null) item.setImageId(ids.get(item.getImageId()));
+            instruction.setVersion(0);
+            save(orderId, instruction);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new ServiceException("型号指令读取失败"); }
+    }
 }

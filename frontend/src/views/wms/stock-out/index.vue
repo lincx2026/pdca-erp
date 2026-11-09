@@ -80,7 +80,7 @@
             </template>
             <!-- 打印：所有状态可见 -->
             <el-button link size="small" type="primary" @click="openView(row)">详情</el-button>
-            <el-button link size="small" type="primary" @click="openPrint(row)">打印</el-button>
+            <el-button link size="small" :type="(row as any).printedAt ? 'warning' : 'primary'" @click="openPrint(row)">{{ (row as any).printedAt ? '已打印' : '打印' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -245,7 +245,7 @@
 
     <!-- 打印预览 Dialog -->
     <el-dialog v-model="printVisible" title="打印预览 - 出库单" width="800px" destroy-on-close>
-      <StockOutPrint :order="printRow" :visible="printVisible" />
+      <StockOutPrint :order="printRow" :visible="printVisible" @confirmed="loadList()" />
     </el-dialog>
   </div>
 </template>

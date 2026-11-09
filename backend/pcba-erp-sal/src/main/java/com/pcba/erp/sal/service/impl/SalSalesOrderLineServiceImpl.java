@@ -11,6 +11,7 @@ import com.pcba.erp.sal.entity.SalSalesOrderLine;
 import com.pcba.erp.sal.mapper.SalSalesOrderLineMapper;
 import com.pcba.erp.sal.service.ISalSalesOrderLineService;
 import com.pcba.erp.sal.service.ISalSalesOrderService;
+import com.pcba.erp.sal.service.ISalCustomerPriceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,8 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
     private final SalSalesOrderLineMapper mapper;
     private final IPdmMaterialService materialService;
     private final ISalSalesOrderService orderService;
+    private final ISalCustomerPriceService customerPrices;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -39,9 +42,19 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
         for (SalSalesOrderLine line : lines) {
             if (line.getMaterialId() == null || materialService.getById(line.getMaterialId()) == null || line.getOrderQty() == null || line.getOrderQty().signum() <= 0 || line.getUnitPrice() == null || line.getUnitPrice().signum() < 0)
                 throw new ServiceException("请选择有效物料并填写数量和单价");
+            if ("QUOTE".equals(line.getPriceSource())) {
+                if (line.getCustomerPriceId() == null || jdbc.queryForList("SELECT price_id FROM sal_customer_price WHERE price_id=? FOR SHARE", Long.class, line.getCustomerPriceId()).isEmpty())
+                    throw new ServiceException("客户报价不存在，请重新匹配价格");
+                var quote = customerPrices.matchPrice(order.getCustomerId(), line.getMaterialId(), line.getOrderQty(), order.getSoDate());
+                if (quote == null || !java.util.Objects.equals(quote.getPriceId(), line.getCustomerPriceId()) ||
+                        !java.util.Objects.equals(quote.getCurrency(), order.getCurrency() == null ? "CNY" : order.getCurrency()) ||
+                        (quote.getUntaxedUnitPrice() == null ? quote.getUnitPrice() : quote.getUntaxedUnitPrice()).compareTo(line.getUnitPrice()) != 0)
+                    throw new ServiceException("客户报价已变化，请重新匹配价格");
+                line.setTaxRate(quote.getTaxRate() == null ? BigDecimal.ZERO : quote.getTaxRate().divide(new BigDecimal("100")));
+            } else { line.setPriceSource("MANUAL"); line.setCustomerPriceId(null); line.setTaxRate(order.getTaxRate()); }
             line.setLineId(null); line.setLineNo(null); line.setShippedQty(BigDecimal.ZERO); line.setReturnedQty(BigDecimal.ZERO);
             line.setMaterialCode(null); line.setMaterialName(null); line.setSpecification(null); line.setUnit(null);
-            line.setTaxRate(order.getTaxRate()); line.setDiscountRate(BigDecimal.ZERO);
+            line.setDiscountRate(BigDecimal.ZERO);
             line.setLineAmount(null); line.setTaxAmount(null);
         }
         return lines.stream().map(this::save).toList();

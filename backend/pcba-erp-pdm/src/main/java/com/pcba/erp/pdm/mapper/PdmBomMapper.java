@@ -39,8 +39,8 @@ public interface PdmBomMapper extends BaseMapper<PdmBom> {
                                 @Param("dataScope") String dataScope);
 
     /** 同成品版本唯一性校验 */
-    @Select("SELECT COUNT(*) FROM pdm_bom WHERE product_material_id = #{productId} AND version = #{version} " +
-            "AND (#{excludeId} IS NULL OR bom_id != #{excludeId})")
+    @Select("<script>SELECT COUNT(*) FROM pdm_bom WHERE product_material_id = #{productId} AND version = #{version} " +
+            "<if test='excludeId != null'>AND bom_id != #{excludeId}</if></script>")
     int countDuplicateVersion(@Param("productId") Long productId,
                               @Param("version") String version,
                               @Param("excludeId") Long excludeId);

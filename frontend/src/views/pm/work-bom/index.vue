@@ -85,7 +85,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="行号">
-              <el-input-number v-model="editDlg.form.lineNo" :min="1" style="width:100%" />
+              <el-input-number v-model="editDlg.form.lineNo" :min="1" placeholder="保存时自动分配" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -122,12 +122,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="已发料">
-              <el-input-number v-model="editDlg.form.issuedQty" :min="0" :precision="4" :step="1" style="width:100%" />
+              <el-input-number v-model="editDlg.form.issuedQty" disabled :min="0" :precision="4" :step="1" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="已退料">
-              <el-input-number v-model="editDlg.form.returnedQty" :min="0" :precision="4" :step="1" style="width:100%" />
+              <el-input-number v-model="editDlg.form.returnedQty" disabled :min="0" :precision="4" :step="1" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -242,7 +242,7 @@ function onWarehouseChange(_warehouseId?: number) { /* 预留 */ }
 
 function openAdd() {
   editDlg.isNew = true
-  editDlg.form = { lineNo: 1, qtyPerUnit: 1, unit: 'PCS', scrapRate: 0 }
+  editDlg.form = { qtyPerUnit: 1, unit: 'PCS', scrapRate: 0 }
   editDlg.show = true
 }
 async function openEdit(row: PmmWorkOrderBom) {
