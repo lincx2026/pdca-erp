@@ -33,17 +33,17 @@
 
     <!-- 表格 -->
     <el-table v-loading="loading" :data="list" stripe border>
-      <el-table-column label="下单日期 / 订单号" min-width="180" show-overflow-tooltip><template #default="{ row }"><div>{{ row.soDate || '—' }}</div><div>{{ row.soNo || '—' }}</div></template></el-table-column>
-      <el-table-column prop="customerOrderNo" label="客户订单号" min-width="130" show-overflow-tooltip />
-      <el-table-column prop="soType" label="类型" width="75" />
-      <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="customerName" label="客户" min-width="180" show-overflow-tooltip />
-      <el-table-column label="品名摘要" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ itemSummary(row) }}</template></el-table-column>
-      <el-table-column prop="deliveryDate" label="交付日期" width="110" />
-      <el-table-column label="订单数量合计" min-width="140" align="right" show-overflow-tooltip><template #default="{ row }">{{ quantitySummary(row) }}</template></el-table-column>
+      <el-table-column label="下单日期 / 订单号" min-width="170" show-overflow-tooltip><template #default="{ row }"><div>{{ row.soDate || '—' }}</div><div>{{ row.soNo || '—' }}</div></template></el-table-column>
+      <el-table-column prop="customerOrderNo" label="客户订单号" min-width="120" show-overflow-tooltip />
+      <el-table-column prop="soType" label="类型" width="65" />
+      <el-table-column prop="remark" label="备注" min-width="110" show-overflow-tooltip />
+      <el-table-column prop="customerName" label="客户" min-width="145" show-overflow-tooltip />
+      <el-table-column label="品名摘要" min-width="190" show-overflow-tooltip><template #default="{ row }">{{ itemSummary(row) }}</template></el-table-column>
+      <el-table-column prop="deliveryDate" label="交付日期" width="105" />
+      <el-table-column label="订单数量合计" min-width="130" align="right" show-overflow-tooltip><template #default="{ row }">{{ quantitySummary(row) }}</template></el-table-column>
       <el-table-column label="订单金额" min-width="145" align="right"><template #default="{ row }">{{ orderAmount(row) }} <el-tooltip v-if="row.amountMismatch || row.lineAmountsComplete === false" :content="row.lineAmountsComplete === false ? '部分明细金额缺失，请核对订单明细' : `订单金额与明细合计 ${formatMoney(row.lineAmountTotal, row.currency)} 不一致，请核对`"><span class="amount-warning" aria-label="订单金额需核对">需核对</span></el-tooltip></template></el-table-column>
-      <el-table-column prop="salesRepName" label="销售员" width="90" show-overflow-tooltip />
-      <el-table-column prop="status" label="状态" width="110">
+      <el-table-column prop="salesRepName" label="销售员" width="80" show-overflow-tooltip />
+      <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
           <el-tag v-if="typeof row.status === 'number'" :type="statusMap[row.status]?.t || ''">
             {{ statusMap[row.status]?.l || String(row.status) }}
@@ -51,7 +51,7 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="225" fixed="right">
+      <el-table-column label="操作" width="210" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
           <el-button v-hasPermi="'wms:stockout:list'" size="small" link type="primary" @click="router.push({ path: '/sal/stock-out', query: { saleOrderNo: row.soNo } })">出库记录</el-button>
