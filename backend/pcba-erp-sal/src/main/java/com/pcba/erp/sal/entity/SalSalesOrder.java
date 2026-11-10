@@ -61,4 +61,18 @@ public class SalSalesOrder implements Serializable {
     @TableField(fill=FieldFill.INSERT) private LocalDateTime createTime;
     @TableField(fill=FieldFill.INSERT_UPDATE) private String updateBy;
     @TableField(fill=FieldFill.INSERT_UPDATE) private LocalDateTime updateTime;
+    @TableField(exist=false) private Integer lineCount;
+    @TableField(exist=false) private String firstMaterialName;
+    @TableField(exist=false) private String firstSpecification;
+    @TableField(exist=false) private java.util.List<UnitQuantity> quantityByUnit;
+    @TableField(exist=false) private BigDecimal lineAmountTotal;
+    @TableField(exist=false) private Boolean lineAmountsComplete;
+    @TableField(exist=false) private Boolean amountMismatch;
+
+    @Data
+    @lombok.AllArgsConstructor
+    public static class UnitQuantity {
+        private String unit;
+        private BigDecimal quantity;
+    }
 }

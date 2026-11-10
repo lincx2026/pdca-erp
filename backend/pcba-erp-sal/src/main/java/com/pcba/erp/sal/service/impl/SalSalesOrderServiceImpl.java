@@ -79,8 +79,30 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
     }
 
     @Override
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public IPage<SalSalesOrder> selectPage(int pageNum, int pageSize, String soNo, String soType, Long customerId, String customerName, Long salesRepId, Integer status, String deliveryDate) {
-        return mapper.selectPage(new Page<>(pageNum, pageSize), soNo, soType, customerId, customerName, salesRepId, status, deliveryDate);
+        IPage<SalSalesOrder> page = mapper.selectPage(new Page<>(pageNum, pageSize), soNo, soType, customerId, customerName, salesRepId, status, deliveryDate);
+        if (page.getRecords().isEmpty()) return page;
+        Map<Long, SalSalesOrder> byId = new java.util.HashMap<>();
+        for (SalSalesOrder order : page.getRecords()) { order.setLineCount(0); order.setLineAmountTotal(BigDecimal.ZERO); order.setLineAmountsComplete(true); order.setQuantityByUnit(new ArrayList<>()); byId.put(order.getSoId(), order); }
+        List<Long> ids = new ArrayList<>(byId.keySet());
+        for (Map<String,Object> row : lineMapper.firstLines(ids)) {
+            SalSalesOrder order = byId.get(((Number)row.get("soId")).longValue());
+            order.setLineCount(((Number)row.get("lineCount")).intValue());
+            order.setFirstMaterialName((String)row.get("materialName"));
+            order.setFirstSpecification((String)row.get("specification"));
+            order.setLineAmountTotal((BigDecimal)row.get("lineAmountTotal"));
+            order.setLineAmountsComplete(((Number)row.get("amountCount")).intValue() == order.getLineCount());
+        }
+        for (Map<String,Object> row : lineMapper.quantitiesByUnit(ids)) {
+            SalSalesOrder order = byId.get(((Number)row.get("soId")).longValue());
+            order.getQuantityByUnit().add(new SalSalesOrder.UnitQuantity((String)row.get("unit"), (BigDecimal)row.get("quantity")));
+        }
+        for (SalSalesOrder order : page.getRecords()) {
+            if (order.getTotalAmount() != null && Boolean.TRUE.equals(order.getLineAmountsComplete()))
+                order.setAmountMismatch(order.getTotalAmount().setScale(2, java.math.RoundingMode.HALF_UP).compareTo(order.getLineAmountTotal().setScale(2, java.math.RoundingMode.HALF_UP)) != 0);
+        }
+        return page;
     }
 
     @Override
@@ -89,6 +111,19 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
         SalSalesOrder r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
         return r;
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public Map<String,Object> printData(Long id) {
+        SalSalesOrder order = getDetail(id);
+        List<SalSalesOrderLine> lines = lineMapper.selectList(new LambdaQueryWrapper<SalSalesOrderLine>()
+                .eq(SalSalesOrderLine::getSoId, id).orderByAsc(SalSalesOrderLine::getLineNo, SalSalesOrderLine::getLineId));
+        order.setLineAmountsComplete(lines.stream().allMatch(line -> line.getLineAmount() != null));
+        order.setLineAmountTotal(lines.stream().map(SalSalesOrderLine::getLineAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
+        if (order.getTotalAmount() != null && order.getLineAmountsComplete())
+            order.setAmountMismatch(order.getTotalAmount().setScale(2, java.math.RoundingMode.HALF_UP).compareTo(order.getLineAmountTotal().setScale(2, java.math.RoundingMode.HALF_UP)) != 0);
+        return Map.of("order", order, "lines", lines);
     }
 
     @Override

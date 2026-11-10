@@ -33,15 +33,16 @@
 
     <!-- 表格 -->
     <el-table v-loading="loading" :data="list" stripe border>
-      <el-table-column prop="soNo" label="订单号" width="160" />
-      <el-table-column prop="customerOrderNo" label="客户订单号" width="160" show-overflow-tooltip />
-      <el-table-column prop="soType" label="类型" width="90" />
-      <el-table-column prop="customerName" label="客户" width="180" show-overflow-tooltip />
-      <el-table-column prop="salesRepName" label="销售员" width="100" />
-      <el-table-column prop="soDate" label="下单日期" width="110" />
+      <el-table-column label="下单日期 / 订单号" min-width="180" show-overflow-tooltip><template #default="{ row }"><div>{{ row.soDate || '—' }}</div><div>{{ row.soNo || '—' }}</div></template></el-table-column>
+      <el-table-column prop="customerOrderNo" label="客户订单号" min-width="130" show-overflow-tooltip />
+      <el-table-column prop="soType" label="类型" width="75" />
+      <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="customerName" label="客户" min-width="180" show-overflow-tooltip />
+      <el-table-column label="品名摘要" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ itemSummary(row) }}</template></el-table-column>
       <el-table-column prop="deliveryDate" label="交付日期" width="110" />
-      <el-table-column prop="totalAmount" label="订单金额" width="120"><template #default="{ row }">{{ row.totalAmount == null ? '-' : '¥' + Number(row.totalAmount).toFixed(2) }}</template></el-table-column>
-      <el-table-column prop="currency" label="币种" width="70" />
+      <el-table-column label="订单数量合计" min-width="140" align="right" show-overflow-tooltip><template #default="{ row }">{{ quantitySummary(row) }}</template></el-table-column>
+      <el-table-column label="订单金额" min-width="145" align="right"><template #default="{ row }">{{ orderAmount(row) }} <el-tooltip v-if="row.amountMismatch || row.lineAmountsComplete === false" :content="row.lineAmountsComplete === false ? '部分明细金额缺失，请核对订单明细' : `订单金额与明细合计 ${formatMoney(row.lineAmountTotal, row.currency)} 不一致，请核对`"><span class="amount-warning" aria-label="订单金额需核对">需核对</span></el-tooltip></template></el-table-column>
+      <el-table-column prop="salesRepName" label="销售员" width="90" show-overflow-tooltip />
       <el-table-column prop="status" label="状态" width="110">
         <template #default="{ row }">
           <el-tag v-if="typeof row.status === 'number'" :type="statusMap[row.status]?.t || ''">
@@ -50,42 +51,31 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="560" fixed="right">
+      <el-table-column label="操作" width="225" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
-          <el-button v-hasPermi="'sal:order:add'" size="small" link type="primary" @click="openCopy(row)">复制</el-button>
-          <el-button v-hasPermi="'sal:order:list'" size="small" link @click="onView(row)">详情</el-button>
           <el-button v-hasPermi="'wms:stockout:list'" size="small" link type="primary" @click="router.push({ path: '/sal/stock-out', query: { saleOrderNo: row.soNo } })">出库记录</el-button>
-          <el-button v-if="canEdit(row)" v-hasPermi="'sal:order:edit'" size="small" link type="primary" @click="openDialog(row)">编辑</el-button>
-          <el-button v-else size="small" link type="primary" disabled :title="cannotEditReason(row)">编辑</el-button>
-          <el-popconfirm v-if="canRemove(row)" title="确认删除当前记录？" @confirm="onRemove(row)">
-            <template #reference><el-button v-hasPermi="'sal:order:remove'" size="small" link type="danger">删除</el-button></template>
-          </el-popconfirm>
-          <el-popconfirm v-else title="确认删除当前记录？">
-            <template #reference><el-button size="small" link type="danger" disabled :title="cannotRemoveReason(row)">删除</el-button></template>
-          </el-popconfirm>
-          <template v-for="a in stateActionsFor(row)" :key="a.key">
-            <el-tooltip v-if="a.disabled" :content="a.disabledReason" placement="top">
-              <el-button size="small" link :type="a.type || 'default'" disabled>{{ a.label }}</el-button>
-            </el-tooltip>
-            <el-button v-else-if="!a.permission || hasPermission(a.permission)"
-              v-hasPermi="a.permission ? [a.permission] : undefined"
-              size="small" link :type="a.type || 'default'"
-              @click="onActionClick(a, row)">
-              {{ a.label }}
-            </el-button>
-          </template>
-          <!-- P0: 订单行→齐套 入口 -->
-          <el-button v-hasPermi="['sal:kitting:fromOrder']" size="small" link type="warning"
-             :disabled="typeof row.status !== 'number' || [0, 9, 7].includes(row.status)"
-             :title="([0, 9, 7].includes(row.status) ? '订单草稿/取消/驳回不可执行齐套' : '进入订单明细后选择成品行')"
-             @click="onViewLines(row)">
-            执行齐套
-          </el-button>
-          <el-button v-hasPermi="'sal:kitting:add'" size="small" link type="warning" :disabled="typeof row.status !== 'number' || [0, 9, 7].includes(row.status)" @click="router.push({ path: '/sal/kitting', query: { soId: row.soId } })">按机型齐套</el-button>
+          <el-button v-hasPermi="'sal:order:list'" size="small" link type="primary" :loading="printLoadingId === row.soId" :disabled="printLoadingId != null" @click="openPrint(row)">打印</el-button>
+          <el-dropdown trigger="click" @command="command => onMoreCommand(command, row)">
+            <el-button size="small" link type="primary" aria-label="更多订单操作">更多</el-button>
+            <template #dropdown><el-dropdown-menu>
+              <el-dropdown-item command="view" v-if="hasPermission('sal:order:list')">详情</el-dropdown-item>
+              <el-dropdown-item command="copyNumber">复制单号</el-dropdown-item>
+              <el-dropdown-item command="copy" v-if="hasPermission('sal:order:add')">复制订单</el-dropdown-item>
+              <el-dropdown-item command="edit" v-if="hasPermission('sal:order:edit')" :disabled="!canEdit(row)" :title="!canEdit(row) ? cannotEditReason(row) : ''">编辑</el-dropdown-item>
+              <el-dropdown-item command="remove" v-if="hasPermission('sal:order:remove')" :disabled="!canRemove(row)" :title="!canRemove(row) ? cannotRemoveReason(row) : ''">删除</el-dropdown-item>
+              <template v-for="a in stateActionsFor(row)" :key="a.key"><el-dropdown-item v-if="hasPermission(a.permission)" :command="a.key" :disabled="a.disabled" :title="a.disabledReason">{{ a.label }}</el-dropdown-item></template>
+              <el-dropdown-item command="lineKitting" v-if="hasPermission('sal:kitting:fromOrder')" :disabled="typeof row.status !== 'number' || [0, 9, 7].includes(row.status)">按订单行齐套</el-dropdown-item>
+              <el-dropdown-item command="modelKitting" v-if="hasPermission('sal:kitting:add')" :disabled="typeof row.status !== 'number' || [0, 9, 7].includes(row.status)">按机型齐套</el-dropdown-item>
+            </el-dropdown-menu></template>
+          </el-dropdown>
         </template>
       </el-table-column>
     </el-table>
+
+    <el-dialog v-model="printDialog" title="打印预览 - 销售订单" width="min(1100px, 95vw)" destroy-on-close>
+      <SalesOrderPrint v-if="printData" :order="printData.order" :lines="printData.lines" />
+    </el-dialog>
 
     <!-- 分页 -->
     <div class="pagination">
@@ -173,7 +163,7 @@
           <el-descriptions-item label="类型">{{ linesOwner.soType || '-' }}</el-descriptions-item>
           <el-descriptions-item label="客户">{{ linesOwner.customerName || '-' }}</el-descriptions-item>
           <el-descriptions-item label="交付日期">{{ linesOwner.deliveryDate || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="订单金额">{{ linesOwner.totalAmount == null ? '-' : '¥' + Number(linesOwner.totalAmount).toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="订单金额">{{ orderAmount(linesOwner) }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag v-if="typeof linesOwner.status === 'number'" :type="statusMap[linesOwner.status]?.t || ''">
               {{ statusMap[linesOwner.status]?.l || String(linesOwner.status) }}
@@ -323,11 +313,34 @@ import { salOrderApi, salCustomerApi, salPriceApi, salKittingApi, userApi, mater
 import type { SalSalesOrder, SalSalesOrderLine, SalCustomer } from '@/types/models'
 import { hasPerm } from '@/utils/permission'
 import { useUserStore } from '@/stores/user'
+import SalesOrderPrint from '@/views/print/SalesOrderPrint.vue'
 
 defineOptions({ name: 'SalOrderPage' })
 
 const userStore = useUserStore()
 const router = useRouter()
+const printDialog = ref(false), printLoadingId = ref<number | null>(null)
+const printData = ref<{ order: SalSalesOrder; lines: SalSalesOrderLine[] } | null>(null)
+function itemSummary(order: SalSalesOrder) {
+  if (!order.lineCount) return '—'
+  const first = [order.firstMaterialName || '未命名物料', order.firstSpecification].filter(Boolean).join(' / ')
+  return order.lineCount > 1 ? `${first} 等 ${order.lineCount} 项` : first
+}
+function quantitySummary(order: SalSalesOrder) {
+  if (!order.quantityByUnit?.length) return '—'
+  return order.quantityByUnit.map(q => `${Number(q.quantity).toLocaleString('zh-CN', { maximumFractionDigits: 4 })} ${q.unit}`).join('；')
+}
+function orderAmount(order: SalSalesOrder) {
+  return formatMoney(order.totalAmount, order.currency)
+}
+function formatMoney(value?: number, currency?: string) { return value == null ? '—' : `${currency || '未注明币种'} ${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
+async function openPrint(row: SalSalesOrder) {
+  if (!row.soId || printLoadingId.value != null) return
+  printLoadingId.value = row.soId
+  try { printData.value = await salOrderApi.printData(row.soId); printDialog.value = true }
+  catch (e: any) { ElMessage.error(e?.message || '加载打印数据失败') }
+  finally { printLoadingId.value = null }
+}
 const copyDialog = ref(false), copySaving = ref(false), copyOriginal = ref<SalSalesOrder | null>(null)
 const copyOptions = reactive({ customerOrderNo: '', deliveryDate: '', reprice: false })
 function openCopy(row: SalSalesOrder) { copyOriginal.value = row; Object.assign(copyOptions, { customerOrderNo: '', deliveryDate: '', reprice: false }); copyDialog.value = true }
@@ -386,7 +399,7 @@ function stateActionsFor(row: SalSalesOrder): any[] {
           if (key === 'reject') {
             const { value } = await ElMessageBox.prompt('请输入驳回原因', '驳回-' + r.soNo, {
               confirmButtonText: '确定', cancelButtonText: '取消', inputPlaceholder: '选填', inputType: 'text'
-            }).catch(() => ({ value: undefined }))
+            })
             const resp = (await salOrderApi.reject(r.soId, value)) as any
             if (resp && (resp.code ?? 200) >= 400) throw new Error(resp.msg || '操作失败')
           } else {
@@ -395,7 +408,7 @@ function stateActionsFor(row: SalSalesOrder): any[] {
           }
           ElMessage.success(d.label + '成功'); await loadList()
         } catch (e: any) {
-          if (e === undefined || e === null) return
+          if (e === undefined || e === null || e === 'cancel' || e === 'close') return
           ElMessage.error(e?.message || d.label + '失败')
         }
       }),
@@ -525,6 +538,25 @@ function resetQuery() {
 function onActionClick(a: any, row: any) {
   if (a.confirm) { ElMessageBox.confirm(a.confirm, '操作确认', { type: 'warning' }).then(() => a.onClick?.(row)).catch(() => {}) }
   else { a.onClick?.(row) }
+}
+
+async function onMoreCommand(command: string, row: SalSalesOrder) {
+  if (command === 'view') return onView(row)
+  if (command === 'copy') return openCopy(row)
+  if (command === 'edit') return openDialog(row)
+  if (command === 'lineKitting') return onViewLines(row)
+  if (command === 'modelKitting') return router.push({ path: '/sal/kitting', query: { soId: row.soId } })
+  if (command === 'copyNumber') {
+    try { await navigator.clipboard.writeText(row.soNo); ElMessage.success('单号已复制') }
+    catch { ElMessage.warning('无法复制，请手动选择订单号') }
+    return
+  }
+  if (command === 'remove') {
+    try { await ElMessageBox.confirm('确认删除当前订单？', '操作确认', { type: 'warning' }) } catch { return }
+    return onRemove(row)
+  }
+  const action = stateActionsFor(row).find(a => a.key === command)
+  if (action && !action.disabled && hasPermission(action.permission)) onActionClick(action, row)
 }
 
 const dialog = ref(false)
@@ -808,4 +840,5 @@ onMounted(async () => {
 .lines-header { margin-bottom: 4px; }
 .lines-footer { margin-top: 8px; display: flex; justify-content: flex-end; }
 .lines-total { color: var(--el-text-color-secondary); font-size: 12px; }
+.amount-warning { color: var(--el-color-danger); font-size: 12px; margin-left: 3px; }
 </style>

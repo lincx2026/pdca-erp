@@ -8,6 +8,7 @@ import java.util.List;
 public interface ISalSalesOrderService {
     IPage<SalSalesOrder> selectPage(int pageNum, int pageSize, String soNo, String soType, Long customerId, String customerName, Long salesRepId, Integer status, String deliveryDate);
     SalSalesOrder getDetail(Long id);
+    java.util.Map<String,Object> printData(Long id);
     Long save(SalSalesOrder entity);
     Long copy(Long id, boolean reprice, String customerOrderNo, java.time.LocalDate deliveryDate);
     boolean update(SalSalesOrder entity);

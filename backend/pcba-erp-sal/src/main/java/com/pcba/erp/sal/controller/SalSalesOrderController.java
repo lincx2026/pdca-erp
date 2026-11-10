@@ -54,6 +54,10 @@ public class SalSalesOrderController {
     @GetMapping("/{id}")
     public R<SalSalesOrder> get(@PathVariable Long id) { return R.ok(service.getDetail(id)); }
 
+    @GetMapping("/{id}/print-data")
+    @PreAuthorize("@ps.hasPermi('sal:order:list')")
+    public R<java.util.Map<String,Object>> printData(@PathVariable Long id) { return R.ok(service.printData(id)); }
+
     @Operation(summary = "新增")
     @PreAuthorize("@ps.hasPermi('sal:order:add')")
     @OperLog(title = "SalSalesOrder", businessType = 1)

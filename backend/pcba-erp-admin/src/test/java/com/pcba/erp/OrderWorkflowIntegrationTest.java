@@ -58,6 +58,44 @@ class OrderWorkflowIntegrationTest {
     @Autowired IWmsInventoryService inventory;
 
     @Test @Transactional
+    void salesOrderListSummarizesOnlyCurrentPageAndGroupsQuantitiesByUnit() {
+        Long older = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,currency,total_amount) VALUES ('TEST-LIST-OLDER',1,CURRENT_DATE,'CNY',7) RETURNING so_id", Long.class);
+        Long mixed = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,currency,total_amount,remark) VALUES ('TEST-LIST-MIXED',1,CURRENT_DATE,'USD',123.45,'model') RETURNING so_id", Long.class);
+        Long empty = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,currency) VALUES ('TEST-LIST-EMPTY',1,CURRENT_DATE,'CNY') RETURNING so_id", Long.class);
+        jdbc.update("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,material_name,specification,unit,order_qty,unit_price) VALUES (?,30,1,'last','L','PCS',2,1),(?,10,2,'first','SPEC','PCS',3.5,1),(?,20,3,'weight','W','KG',4,1),(?,40,4,'unknown','',NULL,1,1),(?,10,5,'other','','PCS',9,1)", mixed,mixed,mixed,mixed,older);
+        var page = sales.selectPage(1,2,"TEST-LIST-",null,null,null,null,null,null);
+        assertEquals(3,page.getTotal()); assertEquals(2,page.getRecords().size());
+        assertEquals(empty,page.getRecords().get(0).getSoId()); assertEquals(0,page.getRecords().get(0).getLineCount()); assertTrue(page.getRecords().get(0).getQuantityByUnit().isEmpty());
+        var order = page.getRecords().get(1); assertEquals(mixed,order.getSoId()); assertEquals(4,order.getLineCount()); assertEquals("first",order.getFirstMaterialName()); assertEquals("SPEC",order.getFirstSpecification());
+        assertEquals("USD",order.getCurrency()); assertEquals(0,new BigDecimal("123.45").compareTo(order.getTotalAmount()));
+        assertTrue(order.getAmountMismatch()); assertTrue(order.getLineAmountsComplete()); assertEquals(0,BigDecimal.ZERO.compareTo(order.getLineAmountTotal()));
+        var totals = order.getQuantityByUnit().stream().collect(java.util.stream.Collectors.toMap(SalSalesOrder.UnitQuantity::getUnit, SalSalesOrder.UnitQuantity::getQuantity));
+        assertEquals(3,totals.size()); assertEquals(0,new BigDecimal("5.5").compareTo(totals.get("PCS"))); assertEquals(0,new BigDecimal("4").compareTo(totals.get("KG"))); assertEquals(0,BigDecimal.ONE.compareTo(totals.get("未填写单位")));
+    }
+
+    @Test @Transactional
+    void salesOrderPrintReturnsEveryLineInOrder() {
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,currency) VALUES ('TEST-PRINT-ORDER',1,CURRENT_DATE,'USD') RETURNING so_id", Long.class);
+        jdbc.update("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,material_name,unit,order_qty,unit_price) SELECT ?,n,n,'item-' || n,'PCS',1,2 FROM generate_series(1,501) n",so);
+        var data = sales.printData(so);
+        assertEquals(so,((SalSalesOrder)data.get("order")).getSoId());
+        assertTrue(((SalSalesOrder)data.get("order")).getLineAmountsComplete());
+        var lines = (List<com.pcba.erp.sal.entity.SalSalesOrderLine>)data.get("lines");
+        assertEquals(501,lines.size()); assertEquals(1,lines.get(0).getLineNo()); assertEquals(501,lines.get(500).getLineNo());
+        assertThrows(ServiceException.class, () -> sales.printData(-1L));
+    }
+
+    @Test @Transactional
+    void missingLineAmountIsNotReportedAsAValidAmountMatch() {
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,total_amount) VALUES ('TEST-LIST-NO-AMOUNT',1,CURRENT_DATE,0) RETURNING so_id",Long.class);
+        jdbc.update("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price,line_amount) VALUES (?,1,1,1,1,NULL)",so);
+        SalSalesOrder listed = sales.selectPage(1,10,"TEST-LIST-NO-AMOUNT",null,null,null,null,null,null).getRecords().get(0);
+        assertFalse(listed.getLineAmountsComplete()); assertNull(listed.getAmountMismatch());
+        SalSalesOrder printable = (SalSalesOrder)sales.printData(so).get("order");
+        assertFalse(printable.getLineAmountsComplete()); assertNull(printable.getAmountMismatch());
+    }
+
+    @Test @Transactional
     void savesSalesBomWithAComponent() {
         Long product = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-BOM-PARENT','parent',1) RETURNING material_id", Long.class);
         Long component = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-BOM-CHILD','child',1) RETURNING material_id", Long.class);

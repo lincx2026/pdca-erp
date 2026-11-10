@@ -1403,6 +1403,13 @@ export interface SalSalesOrder {
   soId?: number
   soNo: string
   customerOrderNo?: string
+  lineCount?: number
+  firstMaterialName?: string
+  firstSpecification?: string
+  quantityByUnit?: Array<{ unit: string; quantity: number }>
+  lineAmountTotal?: number
+  lineAmountsComplete?: boolean
+  amountMismatch?: boolean
   soType?: string
   customerId: number
   customerCode?: string

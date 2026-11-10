@@ -1044,6 +1044,7 @@ export interface SalOrderListQ extends PageQ {
   deliveryDate?: string
 }
 export const salOrderApi = {
+  printData: (id: number) => request.get<{ order: SalSalesOrder; lines: SalSalesOrderLine[] }>(`/sal/order/${id}/print-data`),
   copy: (id: number, body: { reprice: boolean; customerOrderNo?: string; deliveryDate?: string }) => request.post<number>(`/sal/order/${id}/copy`, body),
   list:    (p: SalOrderListQ) => request.get<{ rows: SalSalesOrder[]; total: number }>('/sal/order/list', p) as any,
   get:     (id: number) => request.get<SalSalesOrder>('/sal/order/' + id),
