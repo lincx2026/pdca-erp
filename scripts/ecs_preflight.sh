@@ -93,3 +93,37 @@ docker image ls --format '{{.Repository}} {{.Size}}' | while IFS= read -r image;
 done
 if pgrep -f '^docker pull ghcr.io/lincx2026/pdca-erp-' >/dev/null; then echo 'ERP registry image download is active.'; fi
 if [[ -s "$ROOT/.deploy-backups/initial-data-import.sha256" ]]; then echo 'Historical data verification marker present.'; fi
+python3 - <<'PY'
+import collections, re, subprocess
+for service in ('frontend', 'backend'):
+    name = 'pcba-erp-' + service + '-1'
+    info = subprocess.run(['docker', 'inspect', '--format', '{{.State.StartedAt}} {{.RestartCount}} {{.State.OOMKilled}}', name], capture_output=True, text=True)
+    print('ERP ' + service + ' start/restarts/OOM: ' + (info.stdout.strip() if info.returncode == 0 else 'unavailable'))
+    result = subprocess.run(['docker', 'logs', '--since', '2h', '--tail', '20000', name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+    counts = collections.Counter()
+    last = {}
+    for line in result.stdout.splitlines():
+        timestamp = re.search(r'\[([^\]]+\d{4}[^\]]*)\]|\b\d{4}[-/]\d\d[-/]\d\d[ T]\d\d:\d\d:\d\d', line)
+        stamp = timestamp.group(0) if timestamp else 'timestamp unavailable'
+        if service == 'frontend':
+            request = re.search(r'"(?:GET|POST|PUT|DELETE|PATCH) (/[^ ?"]*)(?:\?[^ "]*)? HTTP/[^ "]+" (502|503|504)\b', line)
+            if request:
+                route = '/api/wms/stock-out/*' if request.group(1).startswith('/api/wms/stock-out') else '/api/other' if request.group(1).startswith('/api/') else '/other'
+                category = 'HTTP ' + request.group(2) + ' ' + route
+                counts[category] += 1
+                last[category] = stamp
+            for phrase in ('connect() failed', 'upstream prematurely closed', 'upstream timed out', 'no live upstreams'):
+                if phrase in line:
+                    category = 'proxy ' + phrase
+                    counts[category] += 1
+                    last[category] = stamp
+        else:
+            for phrase in ('OutOfMemoryError', 'CannotCreateTransactionException', 'PSQLException', 'Connection refused'):
+                if phrase in line:
+                    counts[phrase] += 1
+                    last[phrase] = stamp
+    print('ERP ' + service + ' log scan: ' + ('available' if result.returncode == 0 else 'unavailable') + ', last two hours, current container only')
+    for category, count in sorted(counts.items()):
+        print('  ' + category + ': ' + str(count) + ', last ' + last[category])
+    if not counts: print('  No matching diagnostic events found.')
+PY
