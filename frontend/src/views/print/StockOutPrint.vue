@@ -193,7 +193,7 @@ const loadData = async () => {
   company.value = null
   try {
     if (!id) throw new Error('缺少出库单编号')
-    const [profile, detail]: any[] = await Promise.all([companyApi.profileGet(), stockOutApi.get(id)])
+    const [profile, detail]: any[] = await Promise.all([companyApi.stockOutPrintProfile(), stockOutApi.get(id)])
     if (sequence !== requestSequence) return
     if (!profile || !detail || String(detail.stockOutId) !== String(id) || !Array.isArray(detail.lines)) throw new Error('返回数据不完整')
     company.value = profile

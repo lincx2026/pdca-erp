@@ -1393,6 +1393,7 @@ export const pmFasApi = {
 export const companyApi = {
   // 公司档案
   profileGet:  () => request.get<CompanyProfile>('/company/profile') as any,
+  stockOutPrintProfile: () => request.get<Pick<CompanyProfile, 'companyName' | 'address' | 'contactPhone'>>('/company/profile/stock-out-print'),
   profileSave: (d: Partial<CompanyProfile>) => request.put('/company/profile', d) as any,
   // 工厂产线
   factoryList:  () => request.get<CompanyFactory[]>('/company/factory/list') as any,

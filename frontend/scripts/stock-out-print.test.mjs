@@ -33,7 +33,7 @@ function loader(getDetail, getProfile = async () => ({ companyName: 'test' })) {
     props: { order: { stockOutId: 1, warehouseId: 7, warehouseName: 'warehouse' } },
     loading: { value: false }, loaded: { value: false }, loadError: { value: '' },
     detailOrder: { value: null }, detailLines: { value: [] }, company: { value: null },
-    companyApi: { profileGet: getProfile }, stockOutApi: { get: getDetail }, Promise, String, Array, Error
+    companyApi: { stockOutPrintProfile: getProfile }, stockOutApi: { get: getDetail }, Promise, String, Array, Error
   }
   runInNewContext(ts.transpile(code), context)
   return context

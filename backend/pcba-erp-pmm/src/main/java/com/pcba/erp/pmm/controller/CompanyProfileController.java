@@ -30,6 +30,17 @@ public class CompanyProfileController {
         return R.ok(profileService.get());
     }
 
+    /** 出库打印仅需要抬头，不返回税号、银行账号等完整档案。 */
+    @Operation(summary = "获取出库单打印抬头")
+    @PreAuthorize("@ps.hasPermi('wms:stockout:list')")
+    @GetMapping("/stock-out-print")
+    public R<StockOutPrintProfile> stockOutPrint() {
+        CompanyProfile profile = profileService.get();
+        return R.ok(new StockOutPrintProfile(profile.getCompanyName(), profile.getAddress(), profile.getContactPhone()));
+    }
+
+    public record StockOutPrintProfile(String companyName, String address, String contactPhone) {}
+
     @Operation(summary = "保存公司档案")
     @PreAuthorize("@ps.hasPermi('company:profile:save')")
     @OperLog(title = "公司档案-保存", businessType = 2)
