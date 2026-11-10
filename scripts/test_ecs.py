@@ -13,8 +13,25 @@ import ecs_site
 import ecs_import
 import io
 import hashlib
+import contextlib
 
 class EcsTests(unittest.TestCase):
+    def test_read_only_log_scan_is_compatible_and_redacts_requests(self):
+        source=(Path(__file__).parent/'ecs_preflight.sh').read_text(encoding='utf-8')
+        code=source.split("python3 - <<'PY'\nimport collections, datetime",1)[1].split('\nPY',1)[0]
+        code='import collections, datetime'+code
+        def command(args,**kwargs):
+            self.assertNotIn('text',kwargs)
+            self.assertNotIn('capture_output',kwargs)
+            line='192.0.2.10 - - [10/Nov/2026:01:00:00 +0000] "GET /api/wms/stock-out/42?token=private HTTP/1.1" 502 0\n'
+            return self.result(line if args[1]=='logs' and 'frontend' in args[-1] else '')
+        output=io.StringIO()
+        with patch('subprocess.run',side_effect=command),contextlib.redirect_stdout(output):
+            exec(code, {})
+        self.assertIn('HTTP 502 /api/wms/stock-out/*: 1',output.getvalue())
+        self.assertNotIn('private',output.getvalue())
+        self.assertNotIn('192.0.2.10',output.getvalue())
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

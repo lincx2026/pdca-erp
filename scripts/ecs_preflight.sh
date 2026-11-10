@@ -97,9 +97,9 @@ python3 - <<'PY'
 import collections, datetime, pathlib, re, subprocess
 for service in ('frontend', 'backend'):
     name = 'pcba-erp-' + service + '-1'
-    info = subprocess.run(['docker', 'inspect', '--format', '{{.State.StartedAt}} {{.RestartCount}} {{.State.OOMKilled}}', name], capture_output=True, text=True)
+    info = subprocess.run(['docker', 'inspect', '--format', '{{.State.StartedAt}} {{.RestartCount}} {{.State.OOMKilled}}', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     print('ERP ' + service + ' start/restarts/OOM: ' + (info.stdout.strip() if info.returncode == 0 else 'unavailable'))
-    result = subprocess.run(['docker', 'logs', '--since', '2h', '--tail', '20000', name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+    result = subprocess.run(['docker', 'logs', '--since', '2h', '--tail', '20000', name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, errors='replace')
     counts = collections.Counter()
     last = {}
     for line in result.stdout.splitlines():
