@@ -281,7 +281,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, RefreshLeft, Plus, Download, Promotion, Check } from '@element-plus/icons-vue'
 import {
@@ -293,6 +293,7 @@ import { useUserStore } from '@/stores/user'
 
 defineOptions({ name: 'ScmPricePage' })
 const router = useRouter()
+const route = useRoute()
 
 const userStore = useUserStore()
 function hasPermission(p: string) {
@@ -708,6 +709,10 @@ function openDialog(row?: any) {
     ensureSupplierOption(row.supplierId)
   } else {
     readonly.value = false
+    if (query.materialId) {
+      form.materialId = query.materialId
+      ensureMaterialOption(query.materialId)
+    }
   }
   dialog.value = true
 }
@@ -753,7 +758,12 @@ async function onRemove(row: any) {
   } catch (e: any) { ElMessage.error(e?.message || '删除失败') }
 }
 
-onMounted(() => loadList())
+onMounted(() => {
+  const materialId = Number(route.query.materialId)
+  if (Number.isSafeInteger(materialId) && materialId > 0) query.materialId = materialId
+  if (typeof route.query.materialCode === 'string') query.materialCode = route.query.materialCode
+  loadList()
+})
 </script>
 
 <style scoped>

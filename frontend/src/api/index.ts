@@ -713,7 +713,7 @@ export const scmReqApi = {
   lines:   (requisitionId: number, pageNum = 1, pageSize = 200) => request.get<{ rows: ScmPurchaseRequisitionLine[]; total: number }>(`/scm/requisition/${requisitionId}/lines`, { pageNum, pageSize }) as any,
   addLine: (d: Partial<ScmPurchaseRequisitionLine>) => request.post<number>('/scm/requisition-line', d),
   addLines: (lines: Partial<ScmPurchaseRequisitionLine>[]) => request.post<number[]>('/scm/requisition-line/batch', lines),
-  estimate: (materialId: number, qty: number, supplierId?: number) => request.get<any>('/scm/requisition-line/estimate', { materialId, qty, supplierId }),
+  estimate: (materialId: number, qty: number, supplierId?: number, currency?: string) => request.get<any>('/scm/requisition-line/estimate', { materialId, qty, supplierId, currency }),
   refreshEstimates: (requisitionId: number) => request.put<number>('/scm/requisition-line/refresh-estimates/' + requisitionId),
   editLine:(d: Partial<ScmPurchaseRequisitionLine>) => request.put<number>('/scm/requisition-line', d),
   removeLine:(id: number) => request.delete<number>('/scm/requisition-line/' + id)

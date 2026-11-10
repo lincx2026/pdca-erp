@@ -329,6 +329,59 @@ class OrderWorkflowIntegrationTest {
     }
 
     @Test @Transactional
+    void approvedUniqueSupplierQuoteIsUsedWithoutDefaultAndConvertKeepsPreviewPrice() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id,reference_price) VALUES ('TEST-QUOTE-MATCH','cable',1,2.2) RETURNING material_id", Long.class);
+        Long supplier = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-QUOTE-MATCH-SUP','supplier') RETURNING supplier_id", Long.class);
+        ScmPurchaseRequisition req = new ScmPurchaseRequisition(); req.setTitle("quote match");
+        Long reqId = requisitions.save(req);
+        ScmPurchaseRequisitionLine line = new ScmPurchaseRequisitionLine(); line.setRequisitionId(reqId); line.setMaterialId(material); line.setQty(new BigDecimal("100"));
+        Long lineId = reqLines.save(line);
+        requisitions.changeStatus(reqId, 1); requisitions.changeStatus(reqId, 2);
+        assertNull(reqLines.getDetail(lineId).getSupplierId());
+        Long price = jdbc.queryForObject("INSERT INTO scm_supplier_price(material_id,supplier_id,unit_price,min_qty,valid_from,valid_to,is_default,status,currency) VALUES (?,?,2.2,1,CURRENT_DATE-1,CURRENT_DATE+1,0,2,'CNY') RETURNING price_id", Long.class, material, supplier);
+        var estimate = reqLines.estimate(material, null, new BigDecimal("100"));
+        assertEquals("QUOTE", estimate.getEstimateSource());
+        assertEquals(price, estimate.getSupplierPriceId());
+        assertEquals(supplier, estimate.getSupplierId());
+        assertThrows(ServiceException.class, () -> requisitions.convertToPurchaseOrder(List.of(lineId), Map.of("expectedPrices", Map.of(lineId.toString(), Map.of("priceId", price, "unitPrice", 2.2, "supplierId", supplier + 1)))));
+        assertThrows(ServiceException.class, () -> requisitions.convertToPurchaseOrder(List.of(lineId), Map.of("expectedPrices", Map.of(lineId.toString(), Map.of("priceId", price, "unitPrice", 2.2, "qty", 99)))));
+        var result = requisitions.convertToPurchaseOrder(List.of(lineId), Map.of("expectedPrices", Map.of(lineId.toString(), Map.of("priceId", price, "unitPrice", 2.2))));
+        assertEquals(1, ((List<?>) result.get("poIds")).size());
+    }
+
+    @Test @Transactional
+    void quoteMatchingRespectsSupplierTierCurrencyAndApproval() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id,reference_price) VALUES ('TEST-QUOTE-RULES','cable',1,9) RETURNING material_id", Long.class);
+        Long first = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-QUOTE-RULES-1','one') RETURNING supplier_id", Long.class);
+        Long second = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-QUOTE-RULES-2','two') RETURNING supplier_id", Long.class);
+        jdbc.update("INSERT INTO scm_supplier_price(material_id,supplier_id,unit_price,min_qty,valid_from,valid_to,is_default,status,currency) VALUES (?,?,3,1,CURRENT_DATE-1,CURRENT_DATE+1,1,2,'CNY'),(?,?,2,100,CURRENT_DATE-1,CURRENT_DATE+1,0,2,'CNY'),(?,?,4,1,CURRENT_DATE-1,CURRENT_DATE+1,0,2,'CNY')", material,first,material,first,material,second);
+        var estimate = reqLines.estimate(material, null, new BigDecimal("100"), "CNY", false);
+        assertEquals(first, estimate.getSupplierId());
+        assertEquals(0, new BigDecimal("2").compareTo(estimate.getEstimatePrice()));
+        jdbc.update("UPDATE scm_supplier_price SET is_default=0 WHERE material_id=?", material);
+        var ambiguous = reqLines.estimate(material, null, new BigDecimal("100"), "CNY", false);
+        assertEquals("REFERENCE", ambiguous.getEstimateSource());
+        assertTrue(ambiguous.getErrorMsg().contains("多个可用供应商"));
+        assertEquals(second, reqLines.estimate(material, second, BigDecimal.ONE, "CNY", false).getSupplierId());
+        assertTrue(reqLines.estimate(material, second, BigDecimal.ONE, "USD", false).getErrorMsg().contains("币种"));
+        jdbc.update("UPDATE scm_supplier_price SET status=1 WHERE material_id=?", material);
+        assertTrue(reqLines.estimate(material, first, BigDecimal.ONE, "CNY", false).getErrorMsg().contains("尚未审核"));
+        jdbc.update("UPDATE scm_supplier_price SET status=2,valid_to=CURRENT_DATE-1,valid_from=CURRENT_DATE-2 WHERE material_id=?", material);
+        assertTrue(reqLines.estimate(material, first, BigDecimal.ONE, "CNY", false).getErrorMsg().contains("有效期"));
+        jdbc.update("UPDATE scm_supplier_price SET valid_to=CURRENT_DATE+1,min_qty=100 WHERE material_id=?", material);
+        assertTrue(reqLines.estimate(material, first, BigDecimal.ONE, "CNY", false).getErrorMsg().contains("最小订购量"));
+    }
+
+    @Test @Transactional
+    void referencePriceNeverBecomesAnApprovedSupplierQuote() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id,reference_price) VALUES ('TEST-ONLY-REFERENCE','cable',1,2.2) RETURNING material_id", Long.class);
+        var estimate = reqLines.estimate(material, null, BigDecimal.TEN, "CNY", false);
+        assertEquals("REFERENCE", estimate.getEstimateSource());
+        assertNull(estimate.getSupplierPriceId());
+        assertTrue(estimate.getErrorMsg().contains("参考单价不能直接转单"));
+    }
+
+    @Test @Transactional
     void keywordSearchAndPriceSnapshotsRespectQuantityAndMissingPrices() {
         Long materialId = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id, reference_price, search_keywords) VALUES ('TEST-KEYWORD', 'test cable', 1, 1.7, 'E27M自发电-A1') RETURNING material_id", Long.class);
         Long supplierId = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code, supplier_name) VALUES ('TEST-KEY-SUPPLIER', 'supplier') RETURNING supplier_id", Long.class);

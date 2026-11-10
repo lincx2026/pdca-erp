@@ -8,7 +8,6 @@ import com.pcba.erp.scm.entity.ScmPurchaseOrder;
 import com.pcba.erp.scm.entity.ScmPurchaseOrderLine;
 import com.pcba.erp.scm.entity.ScmPurchaseRequisition;
 import com.pcba.erp.scm.entity.ScmPurchaseRequisitionLine;
-import com.pcba.erp.scm.entity.ScmSupplierPrice;
 import com.pcba.erp.scm.mapper.ScmPurchaseOrderLineMapper;
 import com.pcba.erp.scm.mapper.ScmPurchaseOrderMapper;
 import com.pcba.erp.scm.mapper.ScmPurchaseRequisitionLineMapper;
@@ -510,8 +509,8 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             BigDecimal remaining = (line.getQty() == null ? BigDecimal.ZERO : line.getQty()).subtract(alreadyConverted);
             BigDecimal qty = qtyOverrides.getOrDefault(lineId, remaining);
             if (qty.signum() <= 0 || qty.compareTo(remaining) > 0) throw new ServiceException("请购行 " + lineId + " 转单数量超过未转数量");
-            ScmPurchaseRequisitionLine estimate = requisitionLineService.estimate(materialId, line.getSupplierId(), qty);
-            if (!"QUOTE".equals(estimate.getEstimateSource())) throw new ServiceException("物料 " + line.getMaterialCode() + " 未找到满足数量及有效期的已审核供应商报价，请先维护报价");
+            ScmPurchaseRequisitionLine estimate = requisitionLineService.estimate(materialId, line.getSupplierId(), qty, currencyDefault, true);
+            if (!"QUOTE".equals(estimate.getEstimateSource())) throw new ServiceException("物料 " + line.getMaterialCode() + "：" + estimate.getErrorMsg());
             Long supplierId = estimate.getSupplierId();
             String supplierCode = null;
             String supplierName = null;
@@ -535,27 +534,22 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
                     lineId, materialId, supplierId, supplierName);
 
             // 阶梯价匹配
-            ScmSupplierPrice matchedPrice = matchSupplierPrice(supplierId, materialId, qty);
-            BigDecimal unitPrice;
-            Long priceId;
-            if (matchedPrice == null) {
-                throw new ServiceException("物料 " + line.getMaterialCode() + " 未找到满足数量及有效期的已审核供应商报价，请先维护报价");
-            } else {
-                unitPrice = matchedPrice.getUnitPrice() == null ? BigDecimal.ZERO : matchedPrice.getUnitPrice();
-                priceId = matchedPrice.getPriceId();
-                log.info("[convertToPurchaseOrder] 命中阶梯价 lineId={} priceId={} unitPrice={}", lineId, priceId, unitPrice);
-            }
+            BigDecimal unitPrice = estimate.getEstimatePrice();
+            Long priceId = estimate.getSupplierPriceId();
             if (hdr.get("expectedPrices") instanceof Map<?, ?> expected) {
                 Object value = expected.get(String.valueOf(lineId));
                 if (!(value instanceof Map<?, ?> item) || item.get("priceId") == null || item.get("unitPrice") == null
                         || !String.valueOf(priceId).equals(String.valueOf(item.get("priceId")))
-                        || unitPrice.compareTo(new BigDecimal(String.valueOf(item.get("unitPrice")))) != 0)
+                        || unitPrice.compareTo(new BigDecimal(String.valueOf(item.get("unitPrice")))) != 0
+                        || (item.get("supplierId") != null && !String.valueOf(supplierId).equals(String.valueOf(item.get("supplierId"))))
+                        || (item.get("currency") != null && !String.valueOf(estimate.getEstimateCurrency()).equalsIgnoreCase(String.valueOf(item.get("currency"))))
+                        || (item.get("qty") != null && qty.compareTo(new BigDecimal(String.valueOf(item.get("qty")))) != 0))
                     throw new ServiceException("物料 " + line.getMaterialCode() + " 的报价已变化，请重新预览后转单");
             }
 
             BigDecimal lineTaxRate = taxRateDefault;
             // TODO: requisitionLine 上 tax_rate 字段目前不存在，所以用 commonHeader 默认
-            String lineCurrency = matchedPrice != null && matchedPrice.getCurrency() != null ? matchedPrice.getCurrency() : currencyDefault;
+            String lineCurrency = estimate.getEstimateCurrency() != null ? estimate.getEstimateCurrency() : currencyDefault;
 
             // 交货日：行 requiredDate > default deliveryDateDefault
             LocalDate dd = line.getRequiredDate() != null ? line.getRequiredDate() : deliveryDateDefault;
@@ -741,86 +735,6 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
                     .atZone(java.time.ZoneId.systemDefault()).toLocalDate();
             return LocalDate.parse(String.valueOf(v));
         } catch (Exception e) { return LocalDate.now(); }
-    }
-
-    /** 取默认供方：优先 PdmMaterialSupplier (isDefault=1 & status=1)，否则 fallback ScmSupplierPrice.isDefault=1 */
-    private Map<String, Object> findDefaultSupplier(Long materialId) {
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT ms.supplier_id, s.supplier_code, ms.supplier_name FROM pdm_material_supplier ms " +
-                            "LEFT JOIN scm_supplier s ON s.supplier_id = ms.supplier_id " +
-                            "WHERE ms.material_id=? AND COALESCE(ms.is_default,0)=1 AND ms.status=1 ORDER BY ms.priority LIMIT 1",
-                    materialId);
-            if (!rows.isEmpty()) {
-                Map<String, Object> r = rows.get(0);
-                Map<String, Object> res = new HashMap<>();
-                res.put("supplierId", ((Number) r.get("supplier_id")).longValue());
-                res.put("supplierCode", r.get("supplier_code") == null ? null : r.get("supplier_code").toString());
-                res.put("supplierName", r.get("supplier_name") == null ? null : r.get("supplier_name").toString());
-                return res;
-            }
-        } catch (Exception e) {
-            log.debug("[findDefaultSupplier] PdmMaterialSupplier查询失败 matId={}: {}", materialId, e.getMessage());
-        }
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT supplier_id, supplier_code, supplier_name FROM scm_supplier_price " +
-                            "WHERE material_id=? AND COALESCE(is_default,0)=1 AND status=2 " +
-                            "ORDER BY valid_from DESC LIMIT 1",
-                    materialId);
-            if (!rows.isEmpty()) {
-                Map<String, Object> r = rows.get(0);
-                Map<String, Object> res = new HashMap<>();
-                res.put("supplierId", ((Number) r.get("supplier_id")).longValue());
-                res.put("supplierCode", r.get("supplier_code") == null ? null : r.get("supplier_code").toString());
-                res.put("supplierName", r.get("supplier_name") == null ? null : r.get("supplier_name").toString());
-                return res;
-            }
-        } catch (Exception e) {
-            log.debug("[findDefaultSupplier] ScmSupplierPrice fallback失败 matId={}: {}", materialId, e.getMessage());
-        }
-        return null;
-    }
-
-    /** ScmSupplierPrice 阶梯价匹配：精确层优先，否则 fallback 最小 minQty 层 */
-    private ScmSupplierPrice matchSupplierPrice(Long supplierId, Long materialId, BigDecimal qty) {
-        List<ScmSupplierPrice> candidates;
-        try {
-            LocalDate today = LocalDate.now();
-            candidates = jdbcTemplate.query(
-                    "SELECT * FROM scm_supplier_price WHERE supplier_id=? AND material_id=? AND status=2 " +
-                            " AND (valid_from IS NULL OR valid_from <= ?) " +
-                            " AND (valid_to IS NULL OR valid_to >= ?) " +
-                            "ORDER BY COALESCE(min_qty,0) ASC, valid_from ASC, price_id ASC FOR SHARE",
-                    (rs, rn) -> {
-                        ScmSupplierPrice p = new ScmSupplierPrice();
-                        p.setPriceId(rs.getLong("price_id"));
-                        p.setSupplierId(rs.getLong("supplier_id"));
-                        p.setMaterialId(rs.getLong("material_id"));
-                        p.setCurrency(rs.getString("currency"));
-                        p.setUnitPrice((BigDecimal) rs.getObject("unit_price"));
-                        p.setTaxRate((BigDecimal) rs.getObject("tax_rate"));
-                        p.setMinQty((BigDecimal) rs.getObject("min_qty"));
-                        try { p.setValidFrom(rs.getDate("valid_from") == null ? null : rs.getDate("valid_from").toLocalDate()); } catch (Exception ignore) {}
-                        try { p.setValidTo(rs.getDate("valid_to") == null ? null : rs.getDate("valid_to").toLocalDate()); } catch (Exception ignore) {}
-                        p.setStatus(rs.getInt("status"));
-                        return p;
-                    }, supplierId, materialId, today, today);
-        } catch (Exception ex) {
-            log.warn("[matchSupplierPrice] 查询阶梯价异常 supplierId={} materialId={}: {}", supplierId, materialId, ex.getMessage());
-            return null;
-        }
-        if (candidates == null || candidates.isEmpty()) return null;
-
-        ScmSupplierPrice exact = null;
-        for (ScmSupplierPrice p : candidates) {
-            BigDecimal minQty = p.getMinQty() == null ? BigDecimal.ZERO : p.getMinQty();
-            if (minQty.compareTo(qty) <= 0) {
-                exact = p; // ASC 扫描最后=最大minQty且<=qty
-            }
-        }
-        if (exact != null) return exact;
-        return null;
     }
 
     private Integer findMaterialQcRequired(Long materialId) {

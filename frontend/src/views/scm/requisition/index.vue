@@ -311,7 +311,7 @@
       <template #footer>
         <el-button @click="convertDlg = false">取消</el-button>
         <el-button type="primary" :loading="convertSubmitting" :disabled="!canSubmitConvert" @click="submitConvert">
-          <el-icon><Check /></el-icon> 确认转PO（{{ convertibleCount }} 行）
+          <el-icon><Check /></el-icon> 确认转PO（{{ convertibleCount }} 张请购单）
         </el-button>
       </template>
     </el-dialog>
@@ -320,6 +320,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, getCurrentInstance, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Search, RefreshLeft, Plus, Download, Edit, Delete, Promotion,
@@ -331,6 +332,7 @@ import { useUserStore } from '@/stores/user'
 
 defineOptions({ name: 'ScmRequisitionPage' })
 const { proxy } = getCurrentInstance() as any
+const router = useRouter()
 const userStore = useUserStore()
 function hasPermission(p: string) { return hasPerm(p, userStore.userInfo?.permissions) }
 function hasPermOrThrow(p: string) { if (!hasPermission(p)) throw new Error('无此操作权限: ' + p); return true }
@@ -787,17 +789,25 @@ async function submitConvert() {
     if (!convertLines.length) { ElMessage.warning('所选单据没有可转采购的明细'); return }
     const preview = await Promise.all(convertLines.map(async line => {
       const qty = Number(line.qty) - Number(line.convertedQty || 0)
-      const estimate: any = await scmReqApi.estimate(line.materialId, qty, line.supplierId)
+      const estimate: any = await scmReqApi.estimate(line.materialId, qty, line.supplierId, hd.currency)
       return { line, qty, estimate }
     }))
     const missing = preview.filter(item => item.estimate.estimateSource !== 'QUOTE')
-    if (missing.length) { ElMessage.warning(`${missing.map(item => item.line.materialCode).join('、')} 缺少适用的已审核报价，请先维护报价`); return }
+    if (missing.length) {
+      const message = missing.map(item => `${item.line.materialCode}：${item.estimate.errorMsg || '未找到适用的已审核报价'}`).join('\n')
+      if (hasPermission('scm:price:list')) {
+        await ElMessageBox.confirm(message, '无法转采购订单', { type: 'warning', customClass: 'preserve-newlines', confirmButtonText: '查看首项采购报价', cancelButtonText: '关闭' })
+        const line = missing[0].line
+        await router.push({ path: '/scm/price', query: { materialId: String(line.materialId), materialCode: line.materialCode || '' } })
+      } else await ElMessageBox.alert(message, '无法转采购订单', { type: 'warning', customClass: 'preserve-newlines' })
+      return
+    }
     const previewText = preview.map(({ line, qty, estimate }) => `${line.materialCode}  数量 ${qty}  供应商 ${suppliers.value.find(s => s.supplierId === estimate.supplierId)?.supplierName || estimate.supplierId}  ${estimate.estimateCurrency} ${Number(estimate.estimatePrice).toFixed(4)}  金额 ${Number(estimate.estimateAmount).toFixed(2)}`).join('\n')
     await ElMessageBox.confirm(`请核对转单价格（提交时会重新校验）：\n${previewText}`, '转采购订单预览', { type: 'warning', customClass: 'preserve-newlines' })
 
     const resp = await scmReqApi.convertPurchaseOrder({
       lineIds: convertLines.map(line => line.lineId),
-      expectedPrices: Object.fromEntries(preview.map(({ line, estimate }) => [String(line.lineId), { priceId: estimate.supplierPriceId, unitPrice: estimate.estimatePrice }])),
+      expectedPrices: Object.fromEntries(preview.map(({ line, qty, estimate }) => [String(line.lineId), { priceId: estimate.supplierPriceId, unitPrice: estimate.estimatePrice, supplierId: estimate.supplierId, currency: estimate.estimateCurrency, qty }])),
       paymentTerm: hd.paymentTerm,
       currency: hd.currency,
       taxRate: Number(hd.taxRate) || 0,

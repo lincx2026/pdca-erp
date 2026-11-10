@@ -370,124 +370,39 @@
 
         <!-- Tab 4: 供应商阶梯价 -->
         <el-tab-pane label="供应商报价" name="supplier">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <el-alert type="info" :closable="false" show-icon
-              title="默认价格(★)会被采购下单时自动带入；优先序1为首选，缺货再依次切换。" />
-            <div>
-              <el-button size="small" type="primary" plain :icon="Plus" @click="addSupplierRow"
-                v-hasPermi="'pdm:supplier:edit'" :disabled="dlg.viewOnly || !form.materialId && !dlg.isAdd">新增供应商</el-button>
-            </div>
+          <el-alert type="info" :closable="false" show-icon title="采购订单使用采购管理中的已审核供应商价格；物料参考单价和历史物料报价仅供参考。" />
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0">
+            <b>正式采购报价</b>
+            <el-button type="primary" plain :disabled="!form.materialId" v-hasPermi="'scm:price:list'" @click="openOfficialPrices">查看和维护采购报价</el-button>
           </div>
-          <el-table :data="supplierRows" border size="small" max-height="350">
-            <el-table-column label="优先序" width="94" align="center">
-              <template #default="{ row, $index }">
-                <div style="display:flex;align-items:center;justify-content:center;gap:4px">
-                  <el-input-number v-model="row.priority" size="small" :min="1" :max="9" controls-position="right" style="width:68px" />
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="★默认" width="60" align="center">
-              <template #default="{ row }">
-                <el-radio v-model="supplierDefaultIdx" :label="row.__idx" @change="supplierRows.forEach((r,i)=>r.isDefault=(i===supplierDefaultIdx?1:0))">
-                  <span v-if="supplierDefaultIdx === row.__idx" style="color:#f56c6c">★</span>
-                </el-radio>
-              </template>
-            </el-table-column>
-            <el-table-column label="供应商" min-width="240">
-              <template #default="{ row }">
-                <div style="display:flex;gap:4px;align-items:center">
-                  <el-select size="small" v-model="row.supplierId" placeholder="选择供应商" filterable style="width:160px"
-                    @change="(v:any)=>fillSupplierName(row, v)">
-                    <el-option v-for="s in supplierOptions" :key="s.supplierId"
-                      :label="`${s.supplierCode || ''} ${s.supplierName}`" :value="s.supplierId">
-                      <span style="float:left">{{ s.supplierCode }} {{ s.supplierName }}</span>
-                      <span style="float:right;color:#999;font-size:12px">{{ s.contact }} {{ s.phone }}</span>
-                    </el-option>
-                  </el-select>
-                  <el-input size="small" v-model="row.supplierName" placeholder="供应商名称" style="flex:1" />
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="供应商料号(SPN)" width="140">
-              <template #default="{ row }"><el-input size="small" v-model="row.supplierPn" placeholder="料号" /></template>
-            </el-table-column>
-            <el-table-column label="品牌/MPN" width="150">
-              <template #default="{ row }">
-                <el-input size="small" v-model="row.brand" placeholder="品牌" style="width:49%;margin-right:2px"/>
-                <el-input size="small" v-model="row.mpn" placeholder="MPN" style="width:49%"/>
-              </template>
-            </el-table-column>
-            <el-table-column label="MOQ/MPQ" width="160">
-              <template #default="{ row }">
-                <el-input-number size="small" :min="0" v-model="row.moq" :step="1" :controls="false" placeholder="MOQ" style="width:47%;margin-right:6px"/>
-                <el-input-number size="small" :min="0" v-model="row.mpq" :step="1" :controls="false" placeholder="MPQ" style="width:47%"/>
-              </template>
-            </el-table-column>
-            <el-table-column label="交期(天)" width="100">
-              <template #default="{ row }">
-                <el-input-number size="small" :min="0" :max="365" v-model="row.leadTimeDays" :controls="false" style="width:100%"/>
-              </template>
-            </el-table-column>
-            <el-table-column label="阶梯1(≥Q)" width="140" align="center">
-              <template #default="{ row }">
-                <div style="display:flex;gap:2px">
-                  <el-input-number size="small" :min="0" v-model="row.tier1Qty" :precision="4" :controls="false" placeholder="数量" style="width:48%"/>
-                  <el-input-number size="small" :min="0" v-model="row.tier1Price" :precision="6" :controls="false" placeholder="单价" style="width:48%"/>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="阶梯2(≥Q)" width="140" align="center">
-              <template #default="{ row }">
-                <div style="display:flex;gap:2px">
-                  <el-input-number size="small" :min="0" v-model="row.tier2Qty" :precision="4" :controls="false" placeholder="≥数量" style="width:48%"/>
-                  <el-input-number size="small" :min="0" v-model="row.tier2Price" :precision="6" :controls="false" placeholder="单价" style="width:48%"/>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="阶梯3(≥Q)" width="140" align="center">
-              <template #default="{ row }">
-                <div style="display:flex;gap:2px">
-                  <el-input-number size="small" :min="0" v-model="row.tier3Qty" :precision="4" :controls="false" placeholder="≥数量" style="width:48%"/>
-                  <el-input-number size="small" :min="0" v-model="row.tier3Price" :precision="6" :controls="false" placeholder="单价" style="width:48%"/>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="币种/税率" width="150">
-              <template #default="{ row }">
-                <el-select size="small" v-model="row.currency" style="width:62px">
-                  <el-option label="CNY" value="CNY" /><el-option label="USD" value="USD" />
-                  <el-option label="EUR" value="EUR" /><el-option label="HKD" value="HKD" />
-                  <el-option label="JPY" value="JPY" />
-                </el-select>
-                <el-input-number size="small" v-model="row.taxRate" :min="0" :max="1" :step="0.01" :precision="4" :controls="false" style="width:76px;margin-left:4px"/>
-              </template>
-            </el-table-column>
-            <el-table-column label="有效期" width="230">
-              <template #default="{ row }">
-                <el-date-picker size="small" v-model="row.effectiveDate" type="date" value-format="YYYY-MM-DD" placeholder="起" style="width:46%"/>
-                <span style="margin:0 4px">~</span>
-                <el-date-picker size="small" v-model="row.expiryDate" type="date" value-format="YYYY-MM-DD" placeholder="止(空=长期)" style="width:46%"/>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="90">
-              <template #default="{ row }">
-                <el-select size="small" v-model="row.status" style="width:100%">
-                  <el-option label="草稿" :value="0" />
-                  <el-option label="生效" :value="1" />
-                  <el-option label="停用" :value="2" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="70" fixed="right" align="center">
-              <template #default="{ $index }">
-                <el-button size="small" link type="danger" v-hasPermi="'pdm:supplier:edit'" :disabled="dlg.viewOnly"
-                  @click="supplierRows.splice($index,1); fixSupplierIdx()">移除</el-button>
-              </template>
-            </el-table-column>
+          <div v-if="!form.materialId">保存物料后可查看正式采购报价。</div>
+          <div v-else-if="officialPriceError">{{ officialPriceError }}</div>
+          <el-table v-else :data="officialPrices" border size="small" v-loading="officialPriceLoading" empty-text="暂无采购报价" max-height="240">
+            <el-table-column prop="supplierName" label="供应商" min-width="160" />
+            <el-table-column prop="currency" label="币种" width="75" />
+            <el-table-column prop="unitPrice" label="单价" width="100" />
+            <el-table-column prop="minQty" label="起订量" width="100" />
+            <el-table-column prop="validFrom" label="生效日期" width="110" />
+            <el-table-column prop="validTo" label="失效日期" width="110" />
+            <el-table-column label="状态" width="90"><template #default="{ row }">{{ ({ 0: '草稿', 1: '待审核', 2: '已审核', 3: '停用', 4: '已驳回', 5: '已转PO' } as Record<number, string>)[row.status] || '未知' }}</template></el-table-column>
+            <el-table-column label="默认" width="70"><template #default="{ row }">{{ row.isDefault === 1 ? '是' : '否' }}</template></el-table-column>
           </el-table>
-          <div style="color:#909399;font-size:12px;margin-top:6px">
-            提示：首次保存物料时，供应商报价会随物料一同提交；若仅新增物料不想填写可跳过。
-          </div>
+          <el-collapse style="margin-top:12px"><el-collapse-item title="历史物料报价（只读参考，不用于采购转单）" name="legacy">
+            <el-alert type="info" :closable="false" show-icon title="历史价格保留供核对；请在采购供应商价格中维护并审核正式报价。" />
+            <el-table :data="supplierRows" border size="small" max-height="350" empty-text="无历史物料报价">
+              <el-table-column prop="supplierName" label="供应商" min-width="160" />
+              <el-table-column prop="supplierPn" label="供应商料号" min-width="120" />
+              <el-table-column prop="tier1Qty" label="阶梯1数量" width="100" />
+              <el-table-column prop="tier1Price" label="阶梯1单价" width="100" />
+              <el-table-column prop="tier2Qty" label="阶梯2数量" width="100" />
+              <el-table-column prop="tier2Price" label="阶梯2单价" width="100" />
+              <el-table-column prop="tier3Qty" label="阶梯3数量" width="100" />
+              <el-table-column prop="tier3Price" label="阶梯3单价" width="100" />
+              <el-table-column prop="currency" label="币种" width="75" />
+              <el-table-column prop="effectiveDate" label="生效日期" width="110" />
+              <el-table-column prop="expiryDate" label="失效日期" width="110" />
+            </el-table>
+          </el-collapse-item></el-collapse>
         </el-tab-pane>
 
         <!-- Tab 5: 替代料 -->
@@ -684,16 +599,17 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch, computed, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, RefreshRight, Plus, MagicStick, Document, UploadFilled, Download, Upload, Refresh } from '@element-plus/icons-vue'
-import { categoryApi, materialApi, codeGenApi, supplierApi, alternateApi, scmSupplierApi, type MaterialListQ, type MaterialImportResult } from '@/api'
+import { categoryApi, materialApi, codeGenApi, supplierApi, alternateApi, scmPriceApi, type MaterialListQ, type MaterialImportResult } from '@/api'
 import { hasPerm } from '@/utils/permission'
 import { useUserStore } from '@/stores/user'
 import type { UploadFile } from 'element-plus'
-import type { PdmMaterial, PdmMaterialCategory, PdmMaterialSupplier, PdmMaterialAlternate, ScmSupplier } from '@/types/models'
+import type { PdmMaterial, PdmMaterialCategory, PdmMaterialSupplier, PdmMaterialAlternate } from '@/types/models'
 
 const route = useRoute()
+const router = useRouter()
 // 根据路由 meta.scope 区分电子域/成品域 → 权限前缀不同
 const SCOPE: 'elec' | 'fg' = (route.meta as any)?.scope === 'fg' ? 'fg' : 'elec'
 const PERM_PREFIX = SCOPE === 'fg' ? 'pdm:fgmaterial:' : 'pdm:material:'
@@ -896,34 +812,17 @@ function resetForm() {
   // W3.3 重置供应商报价/替代料
   supplierRows.value.length = 0
   altRows.value.length = 0
-  supplierDefaultIdx.value = -1
   altRowsGroupId.value = ''
 }
 
 /* ============ W3.3 供应商阶梯价 Tab4 ============ */
-type SupplierExt = Partial<PdmMaterialSupplier> & { __idx?: number }
-const supplierRows = ref<SupplierExt[]>([])
-const supplierDefaultIdx = ref<number>(-1)
-
-/* ============ 下拉选项 (供应商 + 物料) ============ */
-const supplierOptions = ref<ScmSupplier[]>([])
+const supplierRows = ref<PdmMaterialSupplier[]>([])
 const materialOptions = ref<PdmMaterial[]>([])
-async function loadSupplierOptions() {
-  try {
-    const resp: any = await scmSupplierApi.options()
-    supplierOptions.value = ((resp?.data ?? resp) || []) as ScmSupplier[]
-  } catch { supplierOptions.value = [] }
-}
 async function loadMaterialOptions() {
   try {
     const resp: any = await materialApi.list({ pageNum: 1, pageSize: 1000 })
     materialOptions.value = (resp?.rows || []) as PdmMaterial[]
   } catch { materialOptions.value = [] }
-}
-function fillSupplierName(row: any, id: number) {
-  if (!id) return
-  const s = supplierOptions.value.find(x => x.supplierId === id)
-  if (s) row.supplierName = s.supplierName
 }
 function fillAltMaterial(row: any, id: number) {
   if (!id) return
@@ -934,42 +833,33 @@ function fillAltMaterial(row: any, id: number) {
   }
 }
 
-function fixSupplierIdx() {
-  supplierRows.value.forEach((r, i) => r.__idx = i)
-  // 如果默认索引越界, 回退到-1
-  if (!supplierRows.value.some((r, i) => r.isDefault === 1 && i === supplierDefaultIdx.value)) {
-    const firstDefault = supplierRows.value.findIndex(r => r.isDefault === 1)
-    supplierDefaultIdx.value = firstDefault
-  }
-}
-
-function addSupplierRow() {
-  const n: SupplierExt = {
-    __idx: supplierRows.value.length,
-    supplierId: 0 as any, supplierName: '',
-    supplierPn: '', mpn: form.mpn || '', brand: form.brand || '',
-    priority: supplierRows.value.length + 1,
-    moq: 1, mpq: 1, leadTimeDays: 7,
-    tier1Qty: 1, tier1Price: 0,
-    currency: 'CNY', taxRate: 0.13,
-    isDefault: supplierRows.value.length === 0 ? 1 : 0,
-    status: 1
-  }
-  if (n.isDefault === 1) supplierDefaultIdx.value = n.__idx
-  supplierRows.value.push(n)
-}
-
 /** 打开新增/编辑/详情时加载已有供应商报价 */
 async function loadSuppliers(materialId: number) {
   try {
     const list = await supplierApi.list(materialId) as any as PdmMaterialSupplier[]
-    supplierRows.value = list.map((r, i) => ({ ...r, __idx: i })) as any
-    const dIdx = supplierRows.value.findIndex(r => r.isDefault === 1)
-    supplierDefaultIdx.value = dIdx < 0 ? -1 : dIdx
+    supplierRows.value = list
   } catch {
     supplierRows.value = []
   }
 }
+
+const officialPrices = ref<any[]>([])
+const officialPriceLoading = ref(false)
+const officialPriceError = ref('')
+let officialPriceRequest = 0
+watch(() => [dlg.visible, dlg.tab, form.materialId], async ([visible, tab, id]) => {
+  const sequence = ++officialPriceRequest
+  officialPrices.value = []; officialPriceError.value = ''; officialPriceLoading.value = false
+  if (!visible || tab !== 'supplier' || !id) return
+  if (!hasPerm('scm:price:list', userPerms.value)) { officialPriceError.value = '无采购报价查看权限'; return }
+  officialPriceLoading.value = true
+  try {
+    const response: any = await scmPriceApi.list({ pageNum: 1, pageSize: 20, materialId: Number(id) })
+    if (sequence === officialPriceRequest) officialPrices.value = response?.rows || []
+  } catch { if (sequence === officialPriceRequest) officialPriceError.value = '采购报价加载失败，请重新打开此页重试' }
+  finally { if (sequence === officialPriceRequest) officialPriceLoading.value = false }
+})
+function openOfficialPrices() { router.push({ path: '/scm/price', query: { materialId: String(form.materialId), materialCode: form.materialCode || '' } }) }
 
 /* ============ W3.3 替代料 Tab5 ============ */
 type AltExt = Partial<PdmMaterialAlternate>
@@ -1025,7 +915,6 @@ async function openAdd() {
   }
   catTreeForDlg.value = await categoryApi.excludeTree(null) as any
   // 预加载供应商/物料下拉
-  if (supplierOptions.value.length === 0) loadSupplierOptions()
   if (materialOptions.value.length === 0) loadMaterialOptions()
   dlg.visible = true
 }
@@ -1049,7 +938,6 @@ async function openEdit(row: PdmMaterial) {
   dlg.tab = 'base'
   catTreeForDlg.value = await categoryApi.excludeTree(null) as any
   // 预加载供应商/物料下拉
-  if (supplierOptions.value.length === 0) loadSupplierOptions()
   if (materialOptions.value.length === 0) loadMaterialOptions()
   // W3.3: 异步加载供应商报价与替代料
   if (form.materialId) {
@@ -1070,7 +958,6 @@ async function openView(row: PdmMaterial) {
   dlg.tab = 'base'
   catTreeForDlg.value = await categoryApi.excludeTree(null) as any
   // 预加载供应商/物料下拉
-  if (supplierOptions.value.length === 0) loadSupplierOptions()
   if (materialOptions.value.length === 0) loadMaterialOptions()
   // W3.3: 异步加载供应商报价与替代料
   if (form.materialId) {
@@ -1103,9 +990,6 @@ async function submit() {
   if (!valid) return
   submitting.value = true
   try {
-    // W3.3: 若供应商行有 isDefault 未设置，修正后再提交
-    fixSupplierIdx()
-
     let savedMaterialId: number | undefined
     if (dlg.isEdit) {
       await materialApi.edit(form as any)
@@ -1122,21 +1006,6 @@ async function submit() {
 
     // W3.3: 保存供应商报价与替代料（新增时必须拿到 materialId 后才能调用）
     if (savedMaterialId) {
-      // ---- Tab4: 供应商报价 replaceAll ----
-      const cleanSuppliers = supplierRows.value.map(({ __idx, ...rest }) => ({
-        ...rest,
-        materialId: savedMaterialId!,
-        // 阶梯价校验: 数量为空 → 0
-        tier1Qty: (rest as any).tier1Qty ?? 1,
-        tier1Price: (rest as any).tier1Price ?? 0,
-      })) as any
-      try {
-        await supplierApi.replaceAll(savedMaterialId, cleanSuppliers)
-      } catch (e: any) {
-        ElMessage.error('供应商报价保存失败: ' + (e?.message || e))
-        throw e
-      }
-
       // ---- Tab5: 替代料 replaceAll ----
       const cleanAlts = altRows.value.filter(a => a.altMaterialId && a.altMaterialId > 0).map(a => ({
         ...a,
@@ -1200,7 +1069,6 @@ onMounted(async () => {
   }
   loadList()
   // 预加载供应商/物料下拉 (供供应商报价与替代料 Tab 使用)
-  loadSupplierOptions()
   loadMaterialOptions()
 })
 

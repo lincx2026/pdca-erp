@@ -27,8 +27,9 @@ public class ScmPurchaseRequisitionLineController {
     @PreAuthorize("@ps.hasPermi('scm:requisition:list')")
     @GetMapping("/estimate")
     public R<ScmPurchaseRequisitionLine> estimate(@RequestParam Long materialId,
-            @RequestParam(required = false) Long supplierId, @RequestParam java.math.BigDecimal qty) {
-        return R.ok(service.estimate(materialId, supplierId, qty));
+            @RequestParam(required = false) Long supplierId, @RequestParam java.math.BigDecimal qty,
+            @RequestParam(required = false) String currency) {
+        return R.ok(service.estimate(materialId, supplierId, qty, currency, false));
     }
 
     @PreAuthorize("@ps.hasPermi('scm:requisitionline:add')")
