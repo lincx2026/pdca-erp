@@ -99,6 +99,12 @@ public class ScmPurchaseOrderLineServiceImpl implements IScmPurchaseOrderLineSer
         if (id == null) throw new ServiceException("ID不能为空");
         ScmPurchaseOrderLine old = mapper.selectById(id);
         if (old == null) throw new ServiceException("记录不存在");
+        if (old.getRequisitionLineId() != null && ((entity.getOrderQty() != null && entity.getOrderQty().compareTo(old.getOrderQty()) != 0) || (entity.getMaterialId() != null && !entity.getMaterialId().equals(old.getMaterialId()))))
+            throw new ServiceException("请购生成的订单行不能修改物料或数量，请撤回请购后重新转单");
+        entity.setRequisitionId(old.getRequisitionId());
+        entity.setRequisitionLineId(old.getRequisitionLineId());
+        entity.setReceivedQty(old.getReceivedQty());
+        entity.setReturnedQty(old.getReturnedQty());
         fillMaterial(entity);
         entity.setPoId(old.getPoId());
         if (entity.getLineNo() == null) entity.setLineNo(old.getLineNo());
@@ -123,6 +129,7 @@ public class ScmPurchaseOrderLineServiceImpl implements IScmPurchaseOrderLineSer
     public boolean remove(Long id) {
         ScmPurchaseOrderLine r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
+        if (r.getRequisitionLineId() != null) throw new ServiceException("请购生成的订单行不能单独删除，请撤回请购后重新转单");
         boolean ok = mapper.deleteById(id) > 0;
         if (ok) recomputeHeader(r.getPoId());
         return ok;

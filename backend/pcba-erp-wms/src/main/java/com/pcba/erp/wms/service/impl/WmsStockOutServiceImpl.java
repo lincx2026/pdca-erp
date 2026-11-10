@@ -436,7 +436,7 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         Map<String, Object> agg;
         try {
             agg = jdbcTemplate.queryForMap(
-                    "SELECT COALESCE(SUM(order_qty),0) so, COALESCE(SUM(received_qty),0) sr, " +
+                    "SELECT COALESCE(SUM(order_qty),0) so, COALESCE(SUM(LEAST(order_qty,GREATEST(COALESCE(received_qty,0)-COALESCE(returned_qty,0),0))),0) sr, " +
                             "   (SELECT status FROM scm_purchase_order WHERE po_id=?) cur " +
                             "FROM scm_purchase_order_line WHERE po_id=?",
                     poId, poId);
@@ -448,9 +448,9 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
         BigDecimal sumReceived = toDecimal(agg.get("sr"));
         Integer cur = agg.get("cur") == null ? null : ((Number) agg.get("cur")).intValue();
         if (cur == null) return;
-        if (!Arrays.asList(2, 4, 5).contains(cur)) return;
+        if (!Arrays.asList(2, 3, 4, 5).contains(cur)) return;
         int next;
-        if (sumReceived.signum() <= 0) next = 2;
+        if (sumReceived.signum() <= 0) next = cur == 3 ? 3 : 2;
         else if (sumOrder.signum() > 0 && sumReceived.compareTo(sumOrder) >= 0) next = 5;
         else next = 4;
         if (next != cur) {

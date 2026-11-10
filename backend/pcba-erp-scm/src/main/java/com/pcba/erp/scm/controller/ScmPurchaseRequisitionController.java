@@ -108,6 +108,12 @@ public class ScmPurchaseRequisitionController {
     @PutMapping("cancel/{id}")
     public R<Integer> cancel(@PathVariable Long id) { return service.changeStatus(id, 9) ? R.ok(1) : R.fail("取消失败"); }
 
+    @Operation(summary = "撤回请购并退回草稿")
+    @PreAuthorize("@ps.hasPermi('scm:requisition:cancel') and @ps.hasPermi('scm:purchase:remove')")
+    @OperLog(title = "撤回请购转单", businessType = 2)
+    @PostMapping("/{id}/withdraw-conversion")
+    public R<Integer> withdrawConversion(@PathVariable Long id) { service.withdrawConversion(id); return R.ok(1); }
+
     @Operation(summary = "下拉选项")
     @PreAuthorize("@ps.hasPermi('scm:requisition:list')")
     @GetMapping("/options")

@@ -39,6 +39,7 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
     private final ScmPurchaseOrderMapper mapper;
     private final ScmPurchaseOrderLineMapper lineMapper;
     private final JdbcTemplate jdbcTemplate;
+    private final org.mybatis.spring.SqlSessionTemplate sqlSession;
     @Lazy private final IScmApPayableService payableService;
     @Lazy private final IWmsStockInService stockInService;
 
@@ -53,6 +54,24 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
         ScmPurchaseOrder r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
         return r;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> printData(Long id) {
+        ScmPurchaseOrder order = getDetail(id);
+        List<ScmPurchaseOrderLine> lines = lineMapper.selectList(new QueryWrapper<ScmPurchaseOrderLine>().eq("po_id", id).orderByAsc("line_no", "line_id"));
+        return Map.of("order", order, "lines", lines);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmPrint(Long id) {
+        String user = SecurityUtils.getUsernameSafe();
+        int count = jdbcTemplate.update("UPDATE scm_purchase_order SET printed_at=CURRENT_TIMESTAMP, printed_by=? WHERE po_id=?", user, id);
+        if (count != 1) throw new ServiceException("采购订单不存在");
+        jdbcTemplate.update("INSERT INTO scm_purchase_order_print_log(po_id,confirmed_by) VALUES (?,?)", id, user);
+        sqlSession.clearCache();
     }
 
     @Override
@@ -139,9 +158,57 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean remove(Long id) {
+        List<Long> reqIds = jdbcTemplate.queryForList("SELECT DISTINCT requisition_id FROM scm_purchase_order_line WHERE po_id=? AND requisition_id IS NOT NULL ORDER BY requisition_id", Long.class, id);
+        for (Long reqId : reqIds) {
+            jdbcTemplate.queryForList("SELECT requisition_id FROM scm_purchase_requisition WHERE requisition_id=? FOR UPDATE", reqId);
+            jdbcTemplate.queryForList("SELECT line_id FROM scm_purchase_requisition_line WHERE requisition_id=? ORDER BY line_id FOR UPDATE", reqId);
+            Long orphans = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_purchase_order_line l LEFT JOIN scm_purchase_order p ON p.po_id=l.po_id WHERE l.requisition_id=? AND p.po_id IS NULL", Long.class, reqId);
+            if (orphans != null && orphans > 0) throw new ServiceException("请购单存在孤立采购订单明细，请联系管理员核对后处理");
+        }
+        jdbcTemplate.queryForList("SELECT po_id FROM scm_purchase_order WHERE po_id=? FOR UPDATE", id);
+        sqlSession.clearCache();
         ScmPurchaseOrder r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
-        return mapper.deleteById(id) > 0;
+        if (!java.util.Arrays.asList(0, 7).contains(r.getStatus())) throw new ServiceException("只有草稿或已驳回订单可以删除");
+        ensureNoDownstream(id);
+        jdbcTemplate.update("DELETE FROM scm_purchase_order_line WHERE po_id=?", id);
+        boolean removed = mapper.deleteById(id) > 0;
+        for (Long reqId : reqIds) recalculateRequisition(reqId);
+        sqlSession.clearCache();
+        return removed;
+    }
+
+    private void ensureNoDownstream(Long id) {
+        for (String table : new String[]{"scm_delivery_note", "scm_purchase_return", "wms_stock_in_line", "wms_stock_out_line", "scm_ap_payable_line", "scm_supplier_price"}) {
+            Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE po_id=?", Long.class, id);
+            if (count != null && count > 0) throw new ServiceException("订单存在关联业务单据，不能驳回或删除，请先处理关联单据");
+        }
+    }
+
+    private void recalculateRequisition(Long reqId) {
+        jdbcTemplate.update("UPDATE scm_purchase_requisition_line r SET converted_qty=COALESCE((SELECT SUM(p.order_qty) FROM scm_purchase_order_line p JOIN scm_purchase_order h ON h.po_id=p.po_id WHERE p.requisition_line_id=r.line_id AND h.status<>9),0), converted_po_id=(SELECT p.po_id FROM scm_purchase_order_line p JOIN scm_purchase_order h ON h.po_id=p.po_id WHERE p.requisition_line_id=r.line_id AND h.status<>9 ORDER BY p.line_id DESC LIMIT 1), converted_po_line_id=(SELECT p.line_id FROM scm_purchase_order_line p JOIN scm_purchase_order h ON h.po_id=p.po_id WHERE p.requisition_line_id=r.line_id AND h.status<>9 ORDER BY p.line_id DESC LIMIT 1) WHERE r.requisition_id=?", reqId);
+        Long converted = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_purchase_requisition_line WHERE requisition_id=? AND converted_qty>0", Long.class, reqId);
+        if (converted == null || converted == 0) {
+            jdbcTemplate.update("UPDATE scm_purchase_requisition SET status=0,audit_by='',audit_time=NULL,reject_reason=NULL WHERE requisition_id=?", reqId);
+            jdbcTemplate.update("UPDATE scm_purchase_requisition_line SET status=0 WHERE requisition_id=?", reqId);
+        } else {
+            jdbcTemplate.update("UPDATE scm_purchase_requisition_line SET status=CASE WHEN converted_qty>=qty THEN 3 ELSE 2 END WHERE requisition_id=?", reqId);
+            jdbcTemplate.update("UPDATE scm_purchase_requisition SET status=CASE WHEN EXISTS (SELECT 1 FROM scm_purchase_requisition_line WHERE requisition_id=? AND status<>3) THEN 2 ELSE 3 END WHERE requisition_id=?", reqId, reqId);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean reject(Long id, String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 500) throw new ServiceException("驳回原因不能为空且不能超过500字");
+        jdbcTemplate.queryForList("SELECT po_id FROM scm_purchase_order WHERE po_id=? FOR UPDATE", id);
+        sqlSession.clearCache();
+        ScmPurchaseOrder order = getDetail(id);
+        if (!java.util.Arrays.asList(1, 2, 3).contains(order.getStatus())) throw new ServiceException("当前状态不能驳回");
+        ensureNoDownstream(id);
+        boolean updated = jdbcTemplate.update("UPDATE scm_purchase_order SET status=7,reject_reason=?,update_by=?,update_time=CURRENT_TIMESTAMP WHERE po_id=?", reason, SecurityUtils.getUsernameSafe(), id) == 1;
+        sqlSession.clearCache();
+        return updated;
     }
 
     @Override
@@ -184,6 +251,8 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
     @Transactional(rollbackFor = Exception.class)
     public Long generateStockIn(Long poId, Map<String, Object> body) {
         if (poId == null) throw new ServiceException("采购订单ID不能为空");
+        jdbcTemplate.queryForList("SELECT po_id FROM scm_purchase_order WHERE po_id=? FOR UPDATE", poId);
+        sqlSession.clearCache();
         ScmPurchaseOrder po = mapper.selectById(poId);
         if (po == null) throw new ServiceException("采购订单不存在");
         // status 允许: 2已审核/3已下达/4部分到货(继续入)，5/6/9 禁止
@@ -244,6 +313,7 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
 
         List<WmsStockInLine> inLines = new ArrayList<>(lines.size());
         int seq = 0;
+        java.util.Set<Long> seenLineIds = new java.util.HashSet<>();
         for (Map<String, Object> row : lines) {
             Long lineId = row.get("lineId") == null ? null : Long.valueOf(row.get("lineId").toString());
             BigDecimal qty = row.get("qty") == null ? BigDecimal.ZERO : new BigDecimal(row.get("qty").toString());
@@ -253,17 +323,18 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
                 unitPrice = new BigDecimal(row.get("unitPrice").toString());
 
             if (lineId == null) throw new ServiceException("入库明细缺少 lineId (采购订单行ID)");
+            if (!seenLineIds.add(lineId)) throw new ServiceException("订单行重复: " + lineId);
             ScmPurchaseOrderLine pol = lineMap.get(lineId);
             if (pol == null) throw new ServiceException("无效的订单行 lineId=" + lineId);
 
             BigDecimal order = pol.getOrderQty() == null ? BigDecimal.ZERO : pol.getOrderQty();
             BigDecimal recv  = pol.getReceivedQty() == null ? BigDecimal.ZERO : pol.getReceivedQty();
             BigDecimal ret   = pol.getReturnedQty() == null ? BigDecimal.ZERO : pol.getReturnedQty();
-            BigDecimal lastQty = order.subtract(recv).subtract(ret);
+            BigDecimal lastQty = order.subtract(recv).add(ret);
             if (lastQty.compareTo(BigDecimal.ZERO) < 0) lastQty = BigDecimal.ZERO;
 
-            // 核心分配: actual = min(qty, lastQty)  (Exp1380344: 分配阶段截断, 不在后置校验报超)
-            BigDecimal actual = qty.compareTo(lastQty) < 0 ? qty : lastQty;
+            if (qty.signum() < 0 || qty.compareTo(lastQty) > 0) throw new ServiceException("订单行 " + lineId + " 入库数量超过剩余可入库量 " + lastQty);
+            BigDecimal actual = qty;
             if (actual.compareTo(BigDecimal.ZERO) <= 0) {
                 log.warn("[generateStockIn] 跳过lineId={} lastQty=0 qty={}", lineId, qty);
                 continue;
@@ -304,6 +375,7 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
             throw new ServiceException("生成入库单后确认失败: " + ex.getMessage());
         }
 
+        sqlSession.clearCache();
         // 5. 推进 PO 主单 status (若 applyPoReceivedDelta 已推状态，这里可做幂等保护)
         ScmPurchaseOrder latest = mapper.selectById(poId);
         if (latest != null) {
@@ -316,7 +388,7 @@ public class ScmPurchaseOrderServiceImpl implements IScmPurchaseOrderService {
                     BigDecimal o = l.getOrderQty() == null ? BigDecimal.ZERO : l.getOrderQty();
                     BigDecimal rq = l.getReceivedQty() == null ? BigDecimal.ZERO : l.getReceivedQty();
                     BigDecimal rt = l.getReturnedQty() == null ? BigDecimal.ZERO : l.getReturnedQty();
-                    BigDecimal remaining = o.subtract(rq).subtract(rt);
+                    BigDecimal remaining = o.subtract(rq).add(rt);
                     if (rq.compareTo(BigDecimal.ZERO) > 0) anyDone = true;
                     if (remaining.compareTo(BigDecimal.ZERO) > 0) allDone = false;
                 }

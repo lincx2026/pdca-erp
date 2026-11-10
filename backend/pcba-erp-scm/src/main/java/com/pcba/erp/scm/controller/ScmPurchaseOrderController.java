@@ -44,6 +44,17 @@ public class ScmPurchaseOrderController {
     @GetMapping("/{id}")
     public R<ScmPurchaseOrder> get(@PathVariable Long id) { return R.ok(service.getDetail(id)); }
 
+    @Operation(summary = "采购订单打印数据（完整明细）")
+    @PreAuthorize("@ps.hasPermi('scm:purchase:list')")
+    @GetMapping("/{id}/print-data")
+    public R<Map<String, Object>> printData(@PathVariable Long id) { return R.ok(service.printData(id)); }
+
+    @Operation(summary = "确认采购订单已打印")
+    @PreAuthorize("@ps.hasPermi('scm:purchase:list')")
+    @OperLog(title = "确认采购订单已打印", businessType = 2)
+    @PostMapping("/{id}/print-confirmation")
+    public R<Void> confirmPrint(@PathVariable Long id) { service.confirmPrint(id); return R.ok(); }
+
     @Operation(summary = "新增")
     @PreAuthorize("@ps.hasPermi('scm:purchase:add')")
     @OperLog(title = "ScmPurchaseOrder", businessType = 1)
@@ -97,7 +108,7 @@ public class ScmPurchaseOrderController {
     @PreAuthorize("@ps.hasPermi('scm:purchase:reject')")
     @OperLog(title = "采购订单-驳回", businessType = 2)
     @PutMapping("reject/{id}")
-    public R<Integer> reject(@PathVariable Long id) { return service.changeStatus(id, 7) ? R.ok(1) : R.fail("驳回失败"); }
+    public R<Integer> reject(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) { return service.reject(id, body == null ? null : body.get("reason")) ? R.ok(1) : R.fail("驳回失败"); }
 
     @Operation(summary = "取消")
     @PreAuthorize("@ps.hasPermi('scm:purchase:cancel')")

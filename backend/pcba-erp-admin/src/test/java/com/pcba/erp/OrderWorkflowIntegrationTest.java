@@ -50,12 +50,82 @@ class OrderWorkflowIntegrationTest {
     @Autowired com.pcba.erp.pmm.service.IPmmWorkOrderBomService workBom;
     @Autowired com.pcba.erp.sal.service.ISalKittingService kitting;
     @Autowired IScmPurchaseRequisitionService requisitions;
+    @Autowired com.pcba.erp.scm.service.IScmPurchaseOrderService purchaseOrders;
+    @Autowired com.pcba.erp.scm.service.IScmPurchaseOrderLineService purchaseLines;
     @Autowired IScmPurchaseRequisitionLineService reqLines;
     @Autowired ISalSalesOrderService sales;
     @Autowired com.pcba.erp.scm.service.IScmSupplierPriceService supplierPrices;
     @Autowired com.pcba.erp.sal.service.ISalSalesOrderLineService salesLines;
     @Autowired IWmsStockOutService stockOut;
     @Autowired IWmsInventoryService inventory;
+
+    @Test @Transactional
+    void purchasePrintLoadsAllLinesAndRecordsOnlyConfirmedPrint() {
+        Long po = jdbc.queryForObject("INSERT INTO scm_purchase_order(po_no,supplier_id,po_date) VALUES ('TEST-PUR-PRINT',1,CURRENT_DATE) RETURNING po_id", Long.class);
+        jdbc.update("INSERT INTO scm_purchase_order_line(po_id,line_no,material_id,order_qty) SELECT ?,n,n,1 FROM generate_series(1,201) n", po);
+        var data = purchaseOrders.printData(po);
+        assertEquals(201, ((List<?>)data.get("lines")).size());
+        assertNull(purchaseOrders.getDetail(po).getPrintedAt());
+        purchaseOrders.confirmPrint(po);
+        assertNotNull(purchaseOrders.getDetail(po).getPrintedAt());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM scm_purchase_order_print_log WHERE po_id=?", Integer.class, po));
+    }
+
+    @Test @Transactional
+    void separateRequisitionsProduceSeparateOrdersAndDeletionRestoresDraft() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-PUR-GROUP','material',1) RETURNING material_id", Long.class);
+        Long supplier = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-PUR-GROUP','supplier') RETURNING supplier_id", Long.class);
+        jdbc.update("INSERT INTO scm_supplier_price(material_id,supplier_id,unit_price,min_qty,valid_from,is_default,status,currency) VALUES (?,?,2,1,CURRENT_DATE-1,1,2,'CNY')", material,supplier);
+        var a = new ScmPurchaseRequisition(); a.setTitle("group a"); Long ra = requisitions.save(a);
+        var b = new ScmPurchaseRequisition(); b.setTitle("group b"); Long rb = requisitions.save(b);
+        var la = new ScmPurchaseRequisitionLine(); la.setRequisitionId(ra); la.setMaterialId(material); la.setQty(BigDecimal.TEN); Long ia = reqLines.save(la);
+        var lb = new ScmPurchaseRequisitionLine(); lb.setRequisitionId(rb); lb.setMaterialId(material); lb.setQty(BigDecimal.TEN); Long ib = reqLines.save(lb);
+        requisitions.changeStatus(ra,1); requisitions.changeStatus(ra,2); requisitions.changeStatus(rb,1); requisitions.changeStatus(rb,2);
+        var result = requisitions.convertToPurchaseOrder(List.of(ia,ib),Map.of());
+        assertEquals(2, ((List<?>)result.get("poIds")).size());
+        Long poA = reqLines.getDetail(ia).getConvertedPoId();
+        Long poB = reqLines.getDetail(ib).getConvertedPoId();
+        assertNotEquals(poA,poB);
+        assertTrue(purchaseOrders.remove(poA));
+        assertEquals(0,requisitions.getDetail(ra).getStatus());
+        assertEquals(0,BigDecimal.ZERO.compareTo(reqLines.getDetail(ia).getConvertedQty()));
+        assertEquals(3,requisitions.getDetail(rb).getStatus());
+        requisitions.withdrawConversion(rb);
+        assertEquals(0,requisitions.getDetail(rb).getStatus());
+        assertNull(jdbc.queryForObject("SELECT MAX(po_id) FROM scm_purchase_order WHERE po_id=?", Long.class,poB));
+    }
+
+    @Test @Transactional
+    void purchaseReturnAllowsReplacementReceiptAndRejectsDuplicateLines() {
+        Long po = jdbc.queryForObject("INSERT INTO scm_purchase_order(po_no,supplier_id,po_date,status) VALUES ('TEST-PUR-RECEIPT',1,CURRENT_DATE,4) RETURNING po_id",Long.class);
+        Long line = jdbc.queryForObject("INSERT INTO scm_purchase_order_line(po_id,line_no,material_id,material_code,unit,order_qty,received_qty,returned_qty,unit_price) VALUES (?,1,777,'TEST-RECEIPT','PCS',10,10,3,2) RETURNING line_id",Long.class,po);
+        var entry = Map.of("lineId",line,"qty",3);
+        assertThrows(ServiceException.class, () -> purchaseOrders.generateStockIn(po,Map.of("warehouseId",90001,"lines",List.of(entry,entry))));
+        assertThrows(ServiceException.class, () -> purchaseOrders.generateStockIn(po,Map.of("warehouseId",90001,"lines",List.of(Map.of("lineId",line,"qty",4)))));
+    }
+
+    @Test @Transactional
+    void returnedQuantityCanBeReceivedAgain() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-PUR-REPLENISH','material',1) RETURNING material_id",Long.class);
+        Long supplier = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-PUR-REPLENISH','supplier') RETURNING supplier_id",Long.class);
+        Long warehouse = jdbc.queryForObject("INSERT INTO wms_warehouse(warehouse_code,warehouse_name) VALUES ('TEST-PUR-REPLENISH','warehouse') RETURNING warehouse_id",Long.class);
+        Long po = jdbc.queryForObject("INSERT INTO scm_purchase_order(po_no,supplier_id,po_date,status) VALUES ('TEST-PUR-REPLENISH',?,CURRENT_DATE,4) RETURNING po_id",Long.class,supplier);
+        Long line = jdbc.queryForObject("INSERT INTO scm_purchase_order_line(po_id,line_no,material_id,material_code,unit,order_qty,received_qty,returned_qty,unit_price) VALUES (?,1,?,'TEST-PUR-REPLENISH','PCS',10,10,3,2) RETURNING line_id",Long.class,po,material);
+        assertNotNull(purchaseOrders.generateStockIn(po,Map.of("warehouseId",warehouse,"lines",List.of(Map.of("lineId",line,"qty",3)))));
+        assertEquals(0,new BigDecimal("13").compareTo(jdbc.queryForObject("SELECT received_qty FROM scm_purchase_order_line WHERE line_id=?",BigDecimal.class,line)));
+        assertEquals(5,purchaseOrders.getDetail(po).getStatus());
+    }
+
+    @Test @Transactional
+    void purchaseRejectionAndDeletionGuardLinkedDocuments() {
+        Long po = jdbc.queryForObject("INSERT INTO scm_purchase_order(po_no,supplier_id,po_date,status) VALUES ('TEST-PUR-REJECT',1,CURRENT_DATE,3) RETURNING po_id", Long.class);
+        assertTrue(purchaseOrders.reject(po,"更正交期"));
+        assertEquals(7,purchaseOrders.getDetail(po).getStatus());
+        assertEquals("更正交期",purchaseOrders.getDetail(po).getRejectReason());
+        jdbc.update("INSERT INTO wms_stock_in_line(stock_in_id,material_id,po_id) VALUES (999999,1,?)",po);
+        assertThrows(ServiceException.class, () -> purchaseOrders.remove(po));
+        assertNotNull(purchaseOrders.getDetail(po));
+    }
 
     @Test @Transactional
     void salesOrderListSummarizesOnlyCurrentPageAndGroupsQuantitiesByUnit() {
@@ -326,6 +396,15 @@ class OrderWorkflowIntegrationTest {
         assertNotEquals(((List<?>) partial.get("poIds")).get(0), ((List<?>) rest.get("poIds")).get(0));
         assertEquals(0, BigDecimal.TEN.compareTo(reqLines.getDetail(lineId).getConvertedQty()));
         assertEquals(3, requisitions.getDetail(id).getStatus());
+        Long firstPo = ((Number)((List<?>)partial.get("poIds")).get(0)).longValue();
+        Long secondPo = ((Number)((List<?>)rest.get("poIds")).get(0)).longValue();
+        var linkedLine = purchaseLines.selectPage(1,10,firstPo,null,null).getRecords().get(0);
+        assertThrows(ServiceException.class, () -> purchaseLines.remove(linkedLine.getLineId()));
+        assertTrue(purchaseOrders.remove(firstPo));
+        assertEquals(0, new BigDecimal("6").compareTo(reqLines.getDetail(lineId).getConvertedQty()));
+        assertEquals(2, requisitions.getDetail(id).getStatus());
+        assertTrue(purchaseOrders.remove(secondPo));
+        assertEquals(0, requisitions.getDetail(id).getStatus());
     }
 
     @Test @Transactional

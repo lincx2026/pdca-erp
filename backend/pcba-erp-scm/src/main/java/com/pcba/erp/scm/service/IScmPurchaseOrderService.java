@@ -9,9 +9,12 @@ import java.util.Map;
 public interface IScmPurchaseOrderService {
     IPage<ScmPurchaseOrder> selectPage(int pageNum, int pageSize, String poNo, String poType, String bizCategory, Long supplierId, String supplierName, Long buyerId, Integer status, String deliveryDate);
     ScmPurchaseOrder getDetail(Long id);
+    Map<String, Object> printData(Long id);
+    void confirmPrint(Long id);
     Long save(ScmPurchaseOrder entity);
     boolean update(ScmPurchaseOrder entity);
     boolean remove(Long id);
+    boolean reject(Long id, String reason);
     boolean changeStatus(Long id, Integer status);
     List<ScmPurchaseOrder> options();
 

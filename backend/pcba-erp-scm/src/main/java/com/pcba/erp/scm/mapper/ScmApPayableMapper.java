@@ -33,7 +33,7 @@ public interface ScmApPayableMapper extends BaseMapper<ScmApPayable> {
                                     @Param("dueDate") String dueDate,
                                     @Param("isOverdue") Integer isOverdue);
 
-    @Select("SELECT COUNT(*) FROM scm_ap_payable WHERE payable_no = #{no} AND (#{id} IS NULL OR payable_id <> #{id})")
+    @Select("SELECT COUNT(*) FROM scm_ap_payable WHERE payable_no = #{no} AND (CAST(#{id} AS BIGINT) IS NULL OR payable_id <> #{id})")
     long countDuplicate(@Param("no") String no, @Param("id") Long id);
 
     // --- 看板统计 ---

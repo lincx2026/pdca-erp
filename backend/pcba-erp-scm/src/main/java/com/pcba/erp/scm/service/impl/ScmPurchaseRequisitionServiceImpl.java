@@ -51,6 +51,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
     @Lazy private final IScmPurchaseRequisitionLineService requisitionLineService;
     @Lazy private final IScmPurchaseOrderService purchaseOrderService;
     private final JdbcTemplate jdbcTemplate;
+    private final org.mybatis.spring.SqlSessionTemplate sqlSession;
 
     @Override
     public IPage<ScmPurchaseRequisition> selectPage(int pageNum, int pageSize, String requisitionNo, String title, String applicantName, Long deptId, Integer status, String requiredDate) {
@@ -230,6 +231,28 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
         mapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ScmPurchaseRequisition>()
                 .eq(ScmPurchaseRequisition::getRequisitionId, id).set(ScmPurchaseRequisition::getRejectReason, reason));
         return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void withdrawConversion(Long id) {
+        jdbcTemplate.queryForList("SELECT requisition_id FROM scm_purchase_requisition WHERE requisition_id=? FOR UPDATE", id);
+        ScmPurchaseRequisition req = getDetail(id);
+        if (!java.util.Arrays.asList(1, 2, 3).contains(req.getStatus())) throw new ServiceException("当前请购单状态不能撤回");
+        jdbcTemplate.queryForList("SELECT line_id FROM scm_purchase_requisition_line WHERE requisition_id=? ORDER BY line_id FOR UPDATE", id);
+        Long orphan = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_purchase_order_line l LEFT JOIN scm_purchase_order p ON p.po_id=l.po_id WHERE l.requisition_id=? AND p.po_id IS NULL", Long.class, id);
+        if (orphan != null && orphan > 0) throw new ServiceException("存在已删除采购订单的孤立明细，请联系管理员核对后处理");
+        List<Long> poIds = jdbcTemplate.queryForList("SELECT DISTINCT po_id FROM scm_purchase_order_line WHERE requisition_id=? ORDER BY po_id", Long.class, id);
+        for (Long poId : poIds) {
+            Long other = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_purchase_order_line WHERE po_id=? AND (requisition_id IS NULL OR requisition_id<>?)", Long.class, poId, id);
+            if (other != null && other > 0) throw new ServiceException("采购订单包含其他请购单或手工行，请先在采购订单中处理");
+            purchaseOrderService.remove(poId);
+        }
+        Long remaining = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_purchase_requisition_line WHERE requisition_id=? AND converted_qty>0", Long.class, id);
+        if (remaining != null && remaining > 0) throw new ServiceException("转单记录不完整，请联系管理员核对后处理");
+        jdbcTemplate.update("UPDATE scm_purchase_requisition SET status=0,audit_by='',audit_time=NULL,reject_reason=NULL WHERE requisition_id=?", id);
+        jdbcTemplate.update("UPDATE scm_purchase_requisition_line SET status=0 WHERE requisition_id=?", id);
+        sqlSession.clearCache();
     }
 
     @Override
@@ -494,7 +517,7 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
         }
 
         // 2. 对每 line：找 defaultSupplier + 匹配阶梯价
-        // PO 组合 key: supplierId + currency + deliveryDate
+        // 按请购单、供应商、币种和交货日分组，避免跨请购单合并
         Map<String, ScmPurchaseOrder> poBucket = new LinkedHashMap<>();
         Map<String, List<ScmPurchaseOrderLine>> poLinesBucket = new LinkedHashMap<>();
         // 记录 lineId -> 已转化的 PO 行 & qty （稍后回写）
@@ -554,11 +577,12 @@ public class ScmPurchaseRequisitionServiceImpl implements IScmPurchaseRequisitio
             // 交货日：行 requiredDate > default deliveryDateDefault
             LocalDate dd = line.getRequiredDate() != null ? line.getRequiredDate() : deliveryDateDefault;
 
-            String bucketKey = supplierId + "_" + lineCurrency + "_" + dd.toString();
+            String bucketKey = line.getRequisitionId() + "_" + supplierId + "_" + lineCurrency + "_" + dd.toString();
             ScmPurchaseOrder po = poBucket.get(bucketKey);
             if (po == null) {
                 po = new ScmPurchaseOrder();
                 po.setPoType("PURCHASE");
+                po.setRequisitionId(line.getRequisitionId());
                 po.setBizCategory(bizCategory);
                 po.setSupplierId(supplierId);
                 po.setSupplierCode(supplierCode);

@@ -2,10 +2,12 @@
   <div class="print-page" ref="printRef">
     <!-- 隐藏区域：打印按钮(仅屏幕显示，不打印) -->
     <div class="no-print" style="text-align:center; margin-bottom:12px;">
-      <el-button type="primary" @click="doPrint">打印</el-button>
+      <el-button type="primary" :disabled="!canPrint" :loading="loading" @click="doPrint">打印</el-button>
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon><el-button size="small" @click="loadData">重新加载</el-button></el-alert>
+      <el-alert v-else-if="loaded && !detailLines.length" title="该采购订单没有明细，无法打印。" type="warning" :closable="false" show-icon />
     </div>
     <!-- A4 打印内容 -->
-    <div class="a4-page">
+    <div v-for="(page, pageIndex) in pages" :key="pageIndex" class="a4-page">
       <!-- 公司抬头 -->
       <div class="doc-header">
         <div class="doc-header-left">
@@ -64,16 +66,16 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="i in 5" :key="i">
-              <td style="text-align:center">{{ i }}</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td style="text-align:center">&nbsp;</td>
-              <td style="text-align:right">&nbsp;</td>
-              <td style="text-align:right">&nbsp;</td>
-              <td style="text-align:right">&nbsp;</td>
-              <td>&nbsp;</td>
+            <tr v-for="(line, i) in page" :key="line.lineId">
+              <td style="text-align:center">{{ pageIndex * 10 + i + 1 }}</td>
+              <td>{{ line.materialCode || '' }}</td>
+              <td>{{ line.materialName || '' }}</td>
+              <td>{{ line.specification || '' }}</td>
+              <td style="text-align:center">{{ line.unit || '' }}</td>
+              <td style="text-align:right">{{ line.orderQty ?? '' }}</td>
+              <td style="text-align:right">{{ line.unitPrice ?? '' }}</td>
+              <td style="text-align:right">{{ line.lineAmount ?? '' }}</td>
+              <td>{{ line.remark || '' }}</td>
             </tr>
           </tbody>
         </table>
@@ -81,12 +83,12 @@
         <div class="section-title">二、交货条款</div>
         <table class="info-table">
           <tr>
-            <td class="label">交货地址</td><td>&nbsp;</td>
-            <td class="label">运输方式</td><td>&nbsp;</td>
+            <td class="label">交货条款</td><td>{{ order?.deliveryTerm || '—' }}</td>
+            <td class="label">运输方式</td><td>{{ order?.transportType || '—' }}</td>
           </tr>
           <tr>
-            <td class="label">付款方式</td><td>&nbsp;</td>
-            <td class="label">特别要求</td><td>&nbsp;</td>
+            <td class="label">付款方式</td><td>{{ order?.paymentTerm || '—' }}</td>
+            <td class="label">特别要求</td><td>{{ order?.remark || '—' }}</td>
           </tr>
         </table>
         <!-- 签字栏 -->
@@ -105,7 +107,7 @@
         </table>
         <div class="footer-note">
           <span>本订单经双方签字盖章后生效。</span>
-          <span>第1页/共1页 · 打印日期：{{ todayStr }}</span>
+          <span>明细组 {{ pageIndex + 1 }}/{{ pages.length }} · 打印日期：{{ todayStr }}</span>
         </div>
       </div>
     </div>
@@ -113,15 +115,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { companyApi } from '@/api/index'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { companyApi, scmPoApi } from '@/api/index'
 import { printCSS } from './printCSS'
 import type { CompanyProfile } from '@/types/models'
 
 const props = defineProps<{ order: any; visible: boolean }>()
+const emit = defineEmits<{ (e: 'confirmed'): void }>()
 const company = ref<CompanyProfile | null>(null)
 const printRef = ref<HTMLElement>()
+const detailOrder = ref<any>(null)
+const detailLines = ref<any[]>([])
+const loading = ref(false), loaded = ref(false), loadError = ref('')
+const order = computed(() => detailOrder.value)
+const canPrint = computed(() => props.visible && !loading.value && loaded.value && !!order.value && detailLines.value.length > 0)
+const pages = computed(() => {
+  const groups = []
+  for (let i = 0; i < detailLines.value.length; i += 10) groups.push(detailLines.value.slice(i, i + 10))
+  return groups
+})
 
 const todayStr = new Date().toLocaleDateString('zh-CN')
 
@@ -135,27 +148,48 @@ const statusText = (s: any) => {
 }
 
 const watermarkText = computed(() => {
-  return props.order ? statusText(props.order.status) : '—'
+  return order.value ? statusText(order.value.status) : '—'
 })
 
+let requestSequence = 0
 const loadData = async () => {
+  const sequence = ++requestSequence
+  const id = props.order?.poId
+  loading.value = true; loaded.value = false; loadError.value = ''; detailOrder.value = null; detailLines.value = []; company.value = null
   try {
-    company.value = await companyApi.profileGet()
-  } catch (e) { console.error('print load', e) }
+    if (!id) throw new Error('缺少采购订单编号')
+    const [profile, data]: any[] = await Promise.all([companyApi.purchaseOrderPrintProfile(), scmPoApi.printData(id)])
+    if (sequence !== requestSequence) return
+    if (!profile || !data?.order || String(data.order.poId) !== String(id) || !Array.isArray(data.lines)) throw new Error('返回数据不完整')
+    company.value = profile; detailOrder.value = data.order; detailLines.value = data.lines; loaded.value = true
+  } catch {
+    if (sequence === requestSequence) loadError.value = '采购订单或公司信息加载失败，请重新加载后打印。'
+  } finally { if (sequence === requestSequence) loading.value = false }
 }
 
-watch(() => props.visible, (v) => { if (v) loadData() })
-onMounted(() => { loadData() })
+watch(() => [props.visible, props.order?.poId], ([visible]) => {
+  if (visible) loadData()
+  else { requestSequence++; loading.value = false; loaded.value = false; detailOrder.value = null; detailLines.value = []; loadError.value = '' }
+}, { immediate: true })
+onBeforeUnmount(() => { requestSequence++ })
 
 const doPrint = () => {
   const el = printRef.value
-  if (!el) return
+  if (!el || !canPrint.value) return
+  const printedId = detailOrder.value.poId
   const win = window.open('', '_blank', 'width=900,height=700')
   if (!win) { ElMessage.warning('请允许弹窗以打印'); return }
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>打印</title><style>${printCSS()}</style></head><body>${el.innerHTML}</body></html>`)
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>打印</title><style>${printCSS()} .a4-page:not(:last-child){break-after:page}.data-table tr{break-inside:avoid}.data-table td{overflow-wrap:anywhere}</style></head><body>${el.innerHTML}</body></html>`)
   win.document.close()
   win.focus()
-  setTimeout(() => { win.print(); win.close() }, 500)
+  setTimeout(async () => {
+    win.print(); win.close()
+    try {
+      await ElMessageBox.confirm('请确认纸质采购订单已实际打印完成。取消打印时请选择取消。', '确认打印结果', { confirmButtonText: '已打印', cancelButtonText: '取消' })
+      await scmPoApi.confirmPrint(printedId)
+      emit('confirmed'); ElMessage.success('已记录打印确认')
+    } catch (e: any) { if (e !== 'cancel' && e !== 'close') ElMessage.error('打印确认结果未能获取，请刷新单据查看状态后再操作') }
+  }, 500)
 }
 
 </script>

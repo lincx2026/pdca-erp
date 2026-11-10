@@ -14,6 +14,7 @@ public interface IScmPurchaseRequisitionService {
     boolean remove(Long id);
     boolean changeStatus(Long id, Integer status);
     boolean reject(Long id, String reason);
+    void withdrawConversion(Long id);
     Long copy(Long id);
     List<ScmPurchaseRequisition> options();
 

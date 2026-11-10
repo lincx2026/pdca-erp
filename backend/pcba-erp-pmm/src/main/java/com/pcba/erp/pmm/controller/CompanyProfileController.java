@@ -41,6 +41,14 @@ public class CompanyProfileController {
 
     public record StockOutPrintProfile(String companyName, String address, String contactPhone) {}
 
+    @Operation(summary = "获取采购订单打印抬头")
+    @PreAuthorize("@ps.hasPermi('scm:purchase:list')")
+    @GetMapping("/purchase-order-print")
+    public R<StockOutPrintProfile> purchaseOrderPrint() {
+        CompanyProfile profile = profileService.get();
+        return R.ok(new StockOutPrintProfile(profile.getCompanyName(), profile.getAddress(), profile.getContactPhone()));
+    }
+
     @Operation(summary = "保存公司档案")
     @PreAuthorize("@ps.hasPermi('company:profile:save')")
     @OperLog(title = "公司档案-保存", businessType = 2)

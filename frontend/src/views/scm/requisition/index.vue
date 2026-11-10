@@ -66,7 +66,7 @@
       <el-table-column prop="lineCount" label="行数" width="80" align="right" />
       <el-table-column prop="createBy" label="创建人" width="100" />
       <el-table-column prop="createTime" label="创建时间" width="160" />
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="330" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
           <el-button v-hasPermi="'scm:requisition:add'" size="small" link type="primary" @click="copyRequisition(row)">复制</el-button>
@@ -79,6 +79,7 @@
           <el-popconfirm v-else title="确认删除？">
             <template #reference><el-button size="small" link type="danger" disabled>删除</el-button></template>
           </el-popconfirm>
+          <el-button v-if="[1, 2, 3].includes(Number(row.status))" v-hasPermi="['scm:requisition:cancel', 'scm:purchase:remove']" size="small" link type="warning" @click="withdrawRequisition(row)">撤回草稿</el-button>
           <el-button size="small" link @click="onView(row)">详情</el-button>
         </template>
       </el-table-column>
@@ -254,7 +255,7 @@
       <div class="convert-wrap">
         <el-alert type="info" :closable="false" show-icon>
           <template #title>
-            将把勾选的 <b class="c-blue">{{ convertibleCount }}</b> 张已审核请购单中可转明细合并为采购订单（按供应商分组）。
+            将把勾选的 <b class="c-blue">{{ convertibleCount }}</b> 张已审核请购单中可转明细生成采购订单（按请购单、供应商、币种和交期分组）。
             请先设置公共头参数；若某行缺少必填字段（如 supplierId / buyerId / requiredDateOffsetDays 等），后端会在 warnings 中返回 missingLineIds。
           </template>
         </el-alert>
@@ -565,6 +566,14 @@ async function onRemove(row: any) {
     proxy?.$modal?.msgSuccess?.('删除成功') || ElMessage.success('删除成功')
     await loadList()
   } catch (e: any) { proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || '删除失败') }
+}
+async function withdrawRequisition(row: any) {
+  try {
+    await ElMessageBox.confirm('撤回后将删除仅属于本请购单的草稿或已驳回采购订单，并退回草稿；有关联业务单据时不可撤回。确定继续吗？', '撤回请购', { type: 'warning' })
+    await scmReqApi.withdrawConversion(Number(row.requisitionId))
+    ElMessage.success('已撤回草稿')
+    await loadList()
+  } catch (e: any) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '撤回失败') }
 }
 async function copyRequisition(row: any) {
   try {

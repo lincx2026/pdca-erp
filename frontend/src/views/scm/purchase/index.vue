@@ -105,7 +105,7 @@
           <el-button v-else v-hasPermi="'scm:purchase:stockIn'" size="small" link type="warning" @click="openStockIn(row)">
             生成入库单
           </el-button>
-          <el-button size="small" link type="info" @click="openPrint(row)">打印</el-button>
+          <el-button size="small" link type="info" :class="{ 'printed-button': row.printedAt }" @click="openPrint(row)">{{ row.printedAt ? '已打印' : '打印' }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -273,7 +273,7 @@
 
     <!-- 打印预览 -->
     <el-dialog v-model="printVisible" title="打印预览 - 采购订单" width="800px" :close-on-click-modal="false">
-      <PurchaseOrderPrint :order="printRow" :visible="printVisible" />
+      <PurchaseOrderPrint :order="printRow" :visible="printVisible" @confirmed="loadList()" />
     </el-dialog>
 
     <!-- ================= P1-B 生成入库单 ================= -->
@@ -315,7 +315,7 @@
         <div class="si-hint">
           <el-alert type="warning" :closable="false" show-icon>
             <template #title>
-              请填写每行<b>本次入库数量</b>（剩余 = orderQty − receivedQty − returnedQty）。
+              请填写每行<b>本次入库数量</b>（剩余 = 订单数量 − 已收数量 + 已退数量）。
               本次入库未税：<b class="c-blue">¥ {{ siTotal.toFixed(2) }}</b>
               &nbsp;，入库行数(>0)：<b>{{ siLines.filter(l=> Number(l.qty) > 0).length }} / {{ siLines.length }}</b>
             </template>
@@ -556,7 +556,7 @@ const ACTION_DEF: Record<string, { label: string; type?: any; permission: string
   audit:    { label:'审核',   type:'primary', permission:'scm:purchase:audit',   allowFrom:[1],   disabledReason:(s)=>`仅「已提交」可审核（当前:${STATUS_LABEL[s]?.l ?? s}）` },
   release:  { label:'下达',   type:'primary', permission:'scm:purchase:release', allowFrom:[2],   disabledReason:(s)=>`仅「已审核」可下达（当前:${STATUS_LABEL[s]?.l ?? s}）` },
   complete: { label:'完成',   type:'default', permission:'scm:purchase:close',   allowFrom:[5],   disabledReason:(s)=>`仅「全部到货」可完成（当前:${STATUS_LABEL[s]?.l ?? s}）` },
-  reject:   { label:'驳回',   type:'default', permission:'scm:purchase:reject',  allowFrom:[1],   disabledReason:(s)=>`仅「已提交」可驳回（当前:${STATUS_LABEL[s]?.l ?? s}）` },
+  reject:   { label:'驳回',   type:'default', permission:'scm:purchase:reject',  allowFrom:[1,2,3],   disabledReason:(s)=>`仅「已提交、已审核、已下达」可驳回（当前:${STATUS_LABEL[s]?.l ?? s}）` },
   cancel:   { label:'取消',   type:'danger',  permission:'scm:purchase:cancel',  allowFrom:[0,1,2,7], disabledReason:(s)=>`仅草稿/提交/审核/驳回可取消（当前:${STATUS_LABEL[s]?.l ?? s}）` }
 }
 const EDITABLE_STATUS = new Set<number>([0, 7])
@@ -677,18 +677,18 @@ async function openStockIn(row: any) {
   si.remark = ''
   siLines.value = []
   try {
-    const res = await scmPoApi.lines(Number(row.poId)) as any
-    const arr: any[] = (res?.rows) || []
+    const res = await scmPoApi.printData(Number(row.poId)) as any
+    const arr: any[] = res?.lines || []
     siLines.value = arr.map((r, idx) => {
       const o = Number(r.orderQty || 0); const rc = Number(r.receivedQty || 0); const rt = Number(r.returnedQty || 0)
-      const remaining = Math.max(0, o - rc - rt)
+      const remaining = Math.max(0, o - rc + rt)
       return {
         lineId: Number(r.lineId), lineNo: r.lineNo ?? (idx+1),
         materialId: Number(r.materialId), materialCode: r.materialCode, materialName: r.materialName,
         specification: r.specification, unit: r.unit,
         orderQty: o, receivedQty: rc, returnedQty: rt,
         unitPrice: Number(r.unitPrice || 0),
-        remaining, qty: 0, batchNo: '', remark: ''
+        remaining, qty: remaining, batchNo: '', remark: ''
       } as SiLine
     })
   } catch (e: any) { ElMessage.error(e?.message || '拉取订单行失败'); return }
@@ -736,14 +736,19 @@ function stateActionsFor(row: ScmPurchaseOrder): any[] {
       onClick: (async (r: any) => {
         try {
           await hasPermOrThrow(d.permission)
-          const resp = await (scmPoApi as any)[key](r.poId) as any
+          let reason: string | undefined
+          if (key === 'reject') {
+            try { reason = (await ElMessageBox.prompt('请输入驳回原因', '驳回采购订单', { inputValidator: (v: string) => !!v?.trim() && v.length <= 500 || '请输入不超过500字的驳回原因' })).value.trim() }
+            catch { return }
+          }
+          const resp = await (scmPoApi as any)[key](r.poId, reason) as any
           if (resp && (resp.code ?? 200) >= 400) throw new Error(resp.msg || '操作失败')
           proxy?.$modal?.msgSuccess?.(d.label + '成功') || ElMessage.success(d.label + '成功')
           await loadList()
         } catch (e: any) { proxy?.$modal?.msgError?.(e?.message) || ElMessage.error(e?.message || d.label + '失败') }
       }),
       confirm: (key === 'submit' || key === 'cancel') ? `确认${d.label}当前记录？`
-               : (key === 'reject' ? `确认驳回当前订单？驳回后可退回修改并重新提交。` : '')
+               : ''
     }
   })
 }
@@ -1118,6 +1123,7 @@ onMounted(() => { loadList(); loadOptions() })
 </script>
 
 <style scoped>
+.printed-button { background: #fde2e2; color: #b42318; padding: 4px 7px; border-radius: 4px; }
 .page-scm-purchase { padding: 16px; }
 .search-form { background: var(--el-bg-color, #fff); padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; }
 .table-toolbar { margin-bottom: 8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }

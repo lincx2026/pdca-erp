@@ -697,6 +697,7 @@ export interface ScmReqListQ extends PageQ {
   requiredDate?: string
 }
 export const scmReqApi = {
+  withdrawConversion: (id: number) => request.post<number>(`/scm/requisition/${id}/withdraw-conversion`),
   list:    (p: ScmReqListQ) => request.get<{ rows: ScmPurchaseRequisition[]; total: number }>('/scm/requisition/list', p) as any,
   get:     (id: number) => request.get<ScmPurchaseRequisition>('/scm/requisition/' + id),
   options: () => request.get<ScmPurchaseRequisition[]>('/scm/requisition/options') as any,
@@ -733,6 +734,8 @@ export interface ScmPoListQ extends PageQ {
 export const scmPoApi = {
   list:    (p: ScmPoListQ) => request.get<{ rows: ScmPurchaseOrder[]; total: number }>('/scm/purchase/list', p) as any,
   get:     (id: number) => request.get<ScmPurchaseOrder>('/scm/purchase/' + id),
+  printData: (id: number) => request.get<{ order: ScmPurchaseOrder; lines: ScmPurchaseOrderLine[] }>(`/scm/purchase/${id}/print-data`),
+  confirmPrint: (id: number) => request.post(`/scm/purchase/${id}/print-confirmation`),
   options: () => request.get<ScmPurchaseOrder[]>('/scm/purchase/options') as any,
   add:     (d: Partial<ScmPurchaseOrder>) => request.post<number>('/scm/purchase', d),
   edit:    (d: Partial<ScmPurchaseOrder>) => request.put<number>('/scm/purchase', d),
@@ -741,7 +744,7 @@ export const scmPoApi = {
   audit:   (id: number) => request.put<number>('/scm/purchase/audit/' + id),
   release: (id: number) => request.put<number>('/scm/purchase/release/' + id),
   complete:(id: number) => request.put<number>('/scm/purchase/complete/' + id),
-  reject:  (id: number) => request.put<number>('/scm/purchase/reject/' + id),
+  reject:  (id: number, reason: string) => request.put<number>('/scm/purchase/reject/' + id, { reason }),
   cancel:  (id: number) => request.put<number>('/scm/purchase/cancel/' + id),
   lines:   (poId: number) => request.get<{ rows: ScmPurchaseOrderLine[]; total: number }>('/scm/purchase-line/list', { poId, pageNum: 1, pageSize: 200 }) as any,
   addLine: (d: Partial<ScmPurchaseOrderLine>) => request.post<number>('/scm/purchase-line', d),
@@ -1394,6 +1397,7 @@ export const companyApi = {
   // 公司档案
   profileGet:  () => request.get<CompanyProfile>('/company/profile') as any,
   stockOutPrintProfile: () => request.get<Pick<CompanyProfile, 'companyName' | 'address' | 'contactPhone'>>('/company/profile/stock-out-print'),
+  purchaseOrderPrintProfile: () => request.get<Pick<CompanyProfile, 'companyName' | 'address' | 'contactPhone'>>('/company/profile/purchase-order-print'),
   profileSave: (d: Partial<CompanyProfile>) => request.put('/company/profile', d) as any,
   // 工厂产线
   factoryList:  () => request.get<CompanyFactory[]>('/company/factory/list') as any,

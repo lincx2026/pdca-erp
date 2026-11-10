@@ -18,6 +18,10 @@ public class ScmPurchaseOrder implements Serializable {
 
     @TableId(type = IdType.AUTO)
     private Long poId;
+    @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
+    private LocalDateTime printedAt;
+    @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
+    private String printedBy;
     @Size(max=50) private String poNo;
     /** 采购模式: NORMAL正常采购 / CONSIGN寄售 / RUSH紧急采购 / FRAME框架订单 (原来就有, 不要动值域) */
     @Size(max=20) private String poType;

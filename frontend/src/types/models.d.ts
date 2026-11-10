@@ -944,6 +944,8 @@ export interface ScmPurchaseRequisitionLine {
 
 /** 采购订单 */
 export interface ScmPurchaseOrder {
+  printedAt?: string
+  printedBy?: string
   poId?: number
   poNo: string
   poType?: string
