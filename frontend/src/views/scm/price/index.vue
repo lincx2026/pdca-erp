@@ -66,7 +66,7 @@
       <el-table-column prop="taxRate" label="税率(%)" width="90"><template #default="{ row }">{{ row.taxRate == null ? '-' : Number(row.taxRate).toLocaleString() }}</template></el-table-column>
       <el-table-column prop="minQty" label="最小订购量" width="110"><template #default="{ row }">{{ row.minQty == null ? '-' : Number(row.minQty).toLocaleString() }}</template></el-table-column>
       <el-table-column prop="validFrom" label="生效日期" width="110" />
-      <el-table-column prop="validTo" label="失效日期" width="110" />
+      <el-table-column label="失效日期" width="110"><template #default="{ row }">{{ row.validTo || '长期有效' }}</template></el-table-column>
       <el-table-column prop="quoteSource" label="报价来源" width="100" />
       <el-table-column prop="isDefault" label="默认" width="80">
         <template #default="{ row }">
@@ -147,8 +147,8 @@
       <el-form-item label="生效日期" required prop="validFrom">
         <el-date-picker v-model="form.validFrom" type="date" value-format="YYYY-MM-DD" placeholder="请选择生效日期" style="width:100%" />
       </el-form-item>
-      <el-form-item label="失效日期" required prop="validTo">
-        <el-date-picker v-model="form.validTo" type="date" value-format="YYYY-MM-DD" placeholder="请选择失效日期" style="width:100%" />
+      <el-form-item label="失效日期" prop="validTo">
+        <el-date-picker v-model="form.validTo" type="date" value-format="YYYY-MM-DD" placeholder="留空表示长期有效" clearable style="width:100%" />
       </el-form-item>
       <el-form-item label="报价来源" prop="quoteSource">
         <el-input v-model="form.quoteSource" placeholder="请输入报价来源" />
@@ -229,7 +229,7 @@
               <template #default="{row}:any"><span :class="row.invalid ? 'c-red':''">{{ Number(row.minQty||0).toLocaleString() }}</span></template>
             </el-table-column>
             <el-table-column label="效期" width="200">
-              <template #default="{row}:any">{{ row.validFrom || '-' }} ~ {{ row.validTo || '-' }}</template>
+              <template #default="{row}:any">{{ row.validFrom || '-' }} ~ {{ row.validTo || '长期有效' }}</template>
             </el-table-column>
             <el-table-column label="采购数量 *" width="150">
               <template #default="{row}:any">
@@ -627,7 +627,7 @@ const form = reactive<Partial<ScmSupplierPrice>>({
   taxRate: undefined as number | undefined,
   minQty: undefined as number | undefined,
   validFrom: '',
-  validTo: '',
+  validTo: null,
   quoteSource: '',
   isDefault: 0,
   status: undefined as number | undefined,
@@ -643,7 +643,7 @@ function formDefaults() {
   form.taxRate = undefined
   form.minQty = undefined
   form.validFrom = ''
-  form.validTo = ''
+  form.validTo = null
   form.quoteSource = ''
   form.isDefault = 0
   form.status = undefined

@@ -421,6 +421,40 @@ class OrderWorkflowIntegrationTest {
     }
 
     @Test @Transactional
+    void supplierQuoteCanBeOpenEndedAndStillRejectsOverlappingPrices() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-OPEN-QUOTE','cable',1) RETURNING material_id", Long.class);
+        Long supplier = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-OPEN-QUOTE-SUP','supplier') RETURNING supplier_id", Long.class);
+        var quote = new com.pcba.erp.scm.entity.ScmSupplierPrice();
+        quote.setMaterialId(material); quote.setSupplierId(supplier); quote.setUnitPrice(new BigDecimal("2.2"));
+        quote.setMinQty(BigDecimal.ONE); quote.setValidFrom(LocalDate.now()); quote.setIsDefault(1);
+        Long id = supplierPrices.save(quote);
+        assertNull(supplierPrices.getDetail(id).getValidTo());
+        quote.setPriceId(id); quote.setValidTo(LocalDate.now().plusDays(30));
+        assertTrue(supplierPrices.update(quote));
+        assertEquals(LocalDate.now().plusDays(30), supplierPrices.getDetail(id).getValidTo());
+        quote.setValidTo(null);
+        assertTrue(supplierPrices.update(quote));
+        assertNull(supplierPrices.getDetail(id).getValidTo());
+        var duplicate = new com.pcba.erp.scm.entity.ScmSupplierPrice();
+        duplicate.setMaterialId(material); duplicate.setSupplierId(supplier); duplicate.setUnitPrice(BigDecimal.ONE);
+        duplicate.setMinQty(BigDecimal.ONE); duplicate.setValidFrom(LocalDate.now().plusDays(365)); duplicate.setValidTo(LocalDate.now().plusDays(400));
+        assertThrows(ServiceException.class, () -> supplierPrices.save(duplicate));
+        duplicate.setValidFrom(LocalDate.now().minusDays(1)); duplicate.setValidTo(LocalDate.now().minusDays(2));
+        assertThrows(ServiceException.class, () -> supplierPrices.save(duplicate));
+        assertTrue(supplierPrices.changeStatus(id, 2));
+        assertEquals(id, reqLines.estimate(material, supplier, BigDecimal.TEN).getSupplierPriceId());
+        Long other = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code,supplier_name) VALUES ('TEST-OPEN-QUOTE-OTHER','supplier') RETURNING supplier_id", Long.class);
+        var bounded = new com.pcba.erp.scm.entity.ScmSupplierPrice(); bounded.setMaterialId(material); bounded.setSupplierId(other); bounded.setUnitPrice(BigDecimal.ONE); bounded.setMinQty(BigDecimal.ONE); bounded.setValidFrom(LocalDate.now()); bounded.setValidTo(LocalDate.now().plusDays(30));
+        Long boundedId = supplierPrices.save(bounded);
+        var future = new com.pcba.erp.scm.entity.ScmSupplierPrice(); future.setMaterialId(material); future.setSupplierId(other); future.setUnitPrice(BigDecimal.ONE); future.setMinQty(BigDecimal.ONE); future.setValidFrom(LocalDate.now().plusDays(30));
+        assertThrows(ServiceException.class, () -> supplierPrices.save(future));
+        future.setValidFrom(LocalDate.now().plusDays(31));
+        assertNotNull(supplierPrices.save(future));
+        assertEquals(LocalDate.now().plusDays(30), supplierPrices.getDetail(boundedId).getValidTo());
+        assertNotNull(supplierPrices.convertToPurchaseOrder(supplier, List.of(Map.of("priceId", id, "qty", 10)), Map.of("poDate", LocalDate.now().plusYears(2).toString())));
+    }
+
+    @Test @Transactional
     void supplierQuotesRejectConflictsAndExplicitIds() {
         Long mid = jdbc.queryForObject("INSERT INTO pdm_material(material_code, material_name, category_id) VALUES ('TEST-QUOTE', 'test', 1) RETURNING material_id", Long.class);
         Long sid = jdbc.queryForObject("INSERT INTO scm_supplier(supplier_code, supplier_name) VALUES ('TEST-QUOTE-SUPPLIER', 'supplier') RETURNING supplier_id", Long.class);

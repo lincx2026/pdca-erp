@@ -24,7 +24,7 @@ public class ScmSupplierPrice implements Serializable {
     private BigDecimal taxRate;
     private BigDecimal minQty;
     @NotNull private LocalDate validFrom;
-    @NotNull private LocalDate validTo;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS) private LocalDate validTo;
     @Size(max=50) private String quoteSource;
     private Integer isDefault;
     /** status: 0草稿 / 1提交 / 2生效(已审) / 3停用 / 5已转采购订单 */

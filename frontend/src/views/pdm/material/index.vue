@@ -383,7 +383,7 @@
             <el-table-column prop="unitPrice" label="单价" width="100" />
             <el-table-column prop="minQty" label="起订量" width="100" />
             <el-table-column prop="validFrom" label="生效日期" width="110" />
-            <el-table-column prop="validTo" label="失效日期" width="110" />
+            <el-table-column label="失效日期" width="110"><template #default="{ row }">{{ row.validTo || '长期有效' }}</template></el-table-column>
             <el-table-column label="状态" width="90"><template #default="{ row }">{{ ({ 0: '草稿', 1: '待审核', 2: '已审核', 3: '停用', 4: '已驳回', 5: '已转PO' } as Record<number, string>)[row.status] || '未知' }}</template></el-table-column>
             <el-table-column label="默认" width="70"><template #default="{ row }">{{ row.isDefault === 1 ? '是' : '否' }}</template></el-table-column>
           </el-table>

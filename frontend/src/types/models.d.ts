@@ -1136,7 +1136,7 @@ export interface ScmSupplierPrice {
   taxRate?: number
   minQty?: number
   validFrom?: string
-  validTo?: string
+  validTo?: string | null
   quoteSource?: string
   isDefault?: number
   status?: number

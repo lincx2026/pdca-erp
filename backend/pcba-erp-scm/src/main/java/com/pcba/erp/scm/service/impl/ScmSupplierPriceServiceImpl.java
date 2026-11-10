@@ -45,8 +45,8 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
 
     private void validateQuote(ScmSupplierPrice p) {
         if (p.getMaterialId() == null || p.getSupplierId() == null || p.getUnitPrice() == null || p.getUnitPrice().signum() < 0
-                || p.getValidFrom() == null || p.getValidTo() == null || p.getValidFrom().isAfter(p.getValidTo()))
-            throw new ServiceException("请选择物料、供应商并填写非负单价及有效日期");
+                || p.getValidFrom() == null || (p.getValidTo() != null && p.getValidFrom().isAfter(p.getValidTo())))
+            throw new ServiceException("请选择物料、供应商并填写非负单价及有效的生效日期");
         if (p.getMinQty() == null) p.setMinQty(BigDecimal.ZERO);
         if (p.getMinQty().signum() < 0) throw new ServiceException("最小订购量不能为负");
         if (p.getCurrency() == null || p.getCurrency().isBlank()) p.setCurrency("CNY");
@@ -54,8 +54,9 @@ public class ScmSupplierPriceServiceImpl implements IScmSupplierPriceService {
         if (locked.isEmpty()) throw new ServiceException("物料不存在");
         if (p.getStatus() != null && (p.getStatus() == 3 || p.getStatus() == 4 || p.getStatus() == 5)) return;
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM scm_supplier_price WHERE material_id=? AND supplier_id=? AND currency=? " +
-                "AND COALESCE(min_qty,0)=? AND status NOT IN (3,4,5) AND valid_from <= ? AND valid_to >= ? AND (CAST(? AS BIGINT) IS NULL OR price_id <> ?)",
-                Integer.class, p.getMaterialId(), p.getSupplierId(), p.getCurrency(), p.getMinQty(), p.getValidTo(), p.getValidFrom(), p.getPriceId(), p.getPriceId());
+                "AND COALESCE(min_qty,0)=? AND status NOT IN (3,4,5) AND (CAST(? AS DATE) IS NULL OR valid_from <= CAST(? AS DATE)) " +
+                "AND (valid_to IS NULL OR valid_to >= ?) AND (CAST(? AS BIGINT) IS NULL OR price_id <> ?)",
+                Integer.class, p.getMaterialId(), p.getSupplierId(), p.getCurrency(), p.getMinQty(), p.getValidTo(), p.getValidTo(), p.getValidFrom(), p.getPriceId(), p.getPriceId());
         if (count != null && count > 0) throw new ServiceException("同一物料、供应商、币种和数量阶梯存在有效期重叠的报价");
     }
 
