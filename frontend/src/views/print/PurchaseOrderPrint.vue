@@ -2,7 +2,8 @@
   <div class="print-page" ref="printRef">
     <!-- 隐藏区域：打印按钮(仅屏幕显示，不打印) -->
     <div class="no-print" style="text-align:center; margin-bottom:12px;">
-      <el-button type="primary" :disabled="!canPrint" :loading="loading" @click="doPrint">打印</el-button>
+      <el-button type="primary" :disabled="!canPrint || exporting" :loading="loading" @click="doPrint">打印</el-button>
+      <el-button :disabled="!canPrint" :loading="exporting" @click="exportPdf">导出 PDF</el-button>
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon><el-button size="small" @click="loadData">重新加载</el-button></el-alert>
       <el-alert v-else-if="loaded && !detailLines.length" title="该采购订单没有明细，无法打印。" type="warning" :closable="false" show-icon />
     </div>
@@ -127,7 +128,7 @@ const company = ref<CompanyProfile | null>(null)
 const printRef = ref<HTMLElement>()
 const detailOrder = ref<any>(null)
 const detailLines = ref<any[]>([])
-const loading = ref(false), loaded = ref(false), loadError = ref('')
+const loading = ref(false), loaded = ref(false), loadError = ref(''), exporting = ref(false)
 const order = computed(() => detailOrder.value)
 const canPrint = computed(() => props.visible && !loading.value && loaded.value && !!order.value && detailLines.value.length > 0)
 const pages = computed(() => {
@@ -172,6 +173,32 @@ watch(() => [props.visible, props.order?.poId], ([visible]) => {
   else { requestSequence++; loading.value = false; loaded.value = false; detailOrder.value = null; detailLines.value = []; loadError.value = '' }
 }, { immediate: true })
 onBeforeUnmount(() => { requestSequence++ })
+
+const exportPdf = async () => {
+  if (!canPrint.value || !printRef.value || exporting.value) return
+  exporting.value = true
+  try {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+    const sections = Array.from(printRef.value.querySelectorAll<HTMLElement>('.a4-page'))
+    for (let i = 0; i < sections.length; i++) {
+      const canvas = await html2canvas(sections[i], {
+        scale: 2, backgroundColor: '#fff',
+        onclone(cloned) {
+          const style = cloned.createElement('style')
+          style.textContent = printCSS() + ' .a4-page { width: 190mm !important; } .data-table td { overflow-wrap: anywhere; }'
+          cloned.head.appendChild(style)
+        }
+      })
+      if (i) doc.addPage()
+      const scale = Math.min(190 / canvas.width, 277 / canvas.height)
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, canvas.width * scale, canvas.height * scale)
+    }
+    const name = String(detailOrder.value?.poNo || '采购订单').replace(/[\\/:*?"<>|]/g, '_')
+    doc.save(`${name}.pdf`)
+  } catch { ElMessage.error('PDF 生成失败，请重试') }
+  finally { exporting.value = false }
+}
 
 const doPrint = () => {
   const el = printRef.value

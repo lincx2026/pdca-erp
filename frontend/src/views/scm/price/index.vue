@@ -121,7 +121,7 @@
                    :remote-method="searchMaterial" :loading="materialLoading"
                    placeholder="输入物料编码/名称搜索" style="width:100%" @change="onMaterialChange">
           <el-option v-for="m in materialOptions" :key="m.materialId"
-                     :label="`${m.materialCode} · ${m.materialName}`" :value="m.materialId" />
+                     :label="`${m.materialCode} · ${m.materialName}${m.searchKeywords ? ` · ${m.searchKeywords}` : ''}`" :value="m.materialId" />
         </el-select>
       </el-form-item>
       <el-form-item label="供应商" required prop="supplierId">
@@ -709,6 +709,9 @@ function openDialog(row?: any) {
     ensureSupplierOption(row.supplierId)
   } else {
     readonly.value = false
+    form.currency = 'CNY'
+    form.taxRate = 13
+    form.quoteSource = '供应商报价'
     if (query.materialId) {
       form.materialId = query.materialId
       ensureMaterialOption(query.materialId)

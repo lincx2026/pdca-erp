@@ -605,6 +605,20 @@ class OrderWorkflowIntegrationTest {
         assertThrows(ServiceException.class, () -> instructions.save(id, saved));
     }
 
+    @Test @Transactional
+    void salesOutCreatedBeforeReceiptCanAllocateAcrossAvailableBatches() {
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,customer_name,so_date,status,warehouse_id) VALUES ('TEST-LATE-STOCK',1,'customer',CURRENT_DATE,2,90001) RETURNING so_id",Long.class);
+        Long line = jdbc.queryForObject("INSERT INTO sal_sales_order_line(so_id,line_no,material_id,order_qty,unit_price) VALUES (?,1,987654,10,1) RETURNING line_id",Long.class,so);
+        Long out = sales.generateStockOut(so);
+        inventory.increaseInventory(90001L,987654L,"LATE-A",new BigDecimal("4"),"PCS");
+        inventory.increaseInventory(90001L,987654L,"LATE-B",new BigDecimal("6"),"PCS");
+        jdbc.update("UPDATE wms_stock_out SET status=2 WHERE stock_out_id=?",out); sql.clearCache();
+        assertTrue(stockOut.confirmStockOut(out));
+        assertEquals(2,stockOut.getDetail(out).getLines().size());
+        assertEquals(0,BigDecimal.TEN.compareTo(jdbc.queryForObject("SELECT shipped_qty FROM sal_sales_order_line WHERE line_id=?",BigDecimal.class,line)));
+        assertEquals(0,BigDecimal.ZERO.compareTo(jdbc.queryForObject("SELECT SUM(quantity) FROM wms_inventory WHERE warehouse_id=90001 AND material_id=987654 AND batch_no IN ('LATE-A','LATE-B')",BigDecimal.class)));
+    }
+
     @Test
     void concurrentSalesShipmentsCannotExceedOrderQuantity() throws Exception {
         long token = System.nanoTime();

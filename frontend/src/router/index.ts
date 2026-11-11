@@ -29,7 +29,7 @@ const routes: RouteRecordRaw[] = [
       // 产品开发 (PDM) — 方案 2: 拆分为 PCBA产品开发 + 成品产品开发 两个子域
       //   共用物料库 + 产品开发页面, 分别负责不同层级的产品定义
       //   PCBA 产品开发: 管电子物料分类/电子物料/PCBA BOM/SMT工艺/客户料号
-      { path: 'pdm/category',         name: 'Category',       component: () => import('@/views/pdm/category/index.vue'),   meta: { title: '电子物料分类', icon: 'Collection', perms: ['pdm:category:list'], scope: 'elec' } },
+      { path: 'pdm/category',         name: 'Category',       component: () => import('@/views/pdm/category/index.vue'),   meta: { title: '物料分类', icon: 'Collection', perms: ['pdm:category:list'], scope: 'elec' } },
       { path: 'pdm/material',         name: 'Material',       component: () => import('@/views/pdm/material/index.vue'),   meta: { title: '电子物料',     icon: 'Goods',      perms: ['pdm:material:list'], scope: 'elec' } },
       { path: 'pdm/bom',              name: 'Bom',            component: () => import('@/views/pdm/bom/index.vue'),           meta: { title: 'PCBA BOM',     icon: 'Guide',      perms: ['pdm:bom:list'] } },
       { path: 'sal/sales-bom',        name: 'SalesBom',       component: () => import('@/views/pdm/bom/index.vue'),           meta: { title: '销售BOM', icon: 'Grid', perms: ['pdm:bom:list'] } },
