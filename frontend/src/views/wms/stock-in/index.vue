@@ -238,7 +238,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, Delete } from '@element-plus/icons-vue'
 import { stockInApi, warehouseApi, custMapApi } from '@/api'
-import type { WmsStockIn, WmsStockInLine } from '@/types/models'
+import type { WmsStockIn, WmsStockInLine, WmsWarehouse } from '@/types/models'
 import StockInPrint from '@/views/print/StockInPrint.vue'
 import MaterialLabel from '@/views/print/MaterialLabel.vue'
 
@@ -289,7 +289,7 @@ const warehouseOpts = ref<any[]>([])
 const materialOpts = ref<any[]>([])
 async function loadWarehouseOpts() {
   try {
-    const all = (await warehouseApi.options()) || []
+    const all: WmsWarehouse[] = (await warehouseApi.options()) || []
     warehouseOpts.value = all.filter(w => w.warehouseScope === warehouseScope || (warehouseScope === 'ELECTRONIC' && !w.warehouseScope))
     if (all.some(w => !w.warehouseScope)) warehouseNotice.value = '部分仓库尚未设置业务分组，请在仓库档案中确认；未分组的历史数据暂显示在电子仓。'
     else if (!warehouseOpts.value.length) warehouseNotice.value = '尚无此业务分组的仓库，请先在仓库档案中设置。'

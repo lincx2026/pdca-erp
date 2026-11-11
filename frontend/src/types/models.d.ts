@@ -398,6 +398,7 @@ export interface WmsStockInLine {
 
 /** 出库单 */
 export interface WmsStockOut {
+  createTime?: string
   stockOutId?: number
   orderNo: string
   warehouseId: number
@@ -945,6 +946,7 @@ export interface ScmPurchaseRequisitionLine {
 
 /** 采购订单 */
 export interface ScmPurchaseOrder {
+  bizCategory?: string
   printedAt?: string
   printedBy?: string
   poId?: number
