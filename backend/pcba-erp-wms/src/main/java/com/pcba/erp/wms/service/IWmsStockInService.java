@@ -11,9 +11,8 @@ import com.pcba.erp.wms.entity.WmsStockIn;
 public interface IWmsStockInService {
 
     /** 分页查询（含数据权限，回填 warehouseName） */
-    IPage<WmsStockIn> selectStockInPage(int pageNum, int pageSize,
-                                        String orderNo, Long warehouseId,
-                                        String inType, Integer status);
+    default IPage<WmsStockIn> selectStockInPage(int pageNum, int pageSize, String orderNo, Long warehouseId, String inType, Integer status) { return selectStockInPage(pageNum,pageSize,orderNo,warehouseId,inType,status,null); }
+    IPage<WmsStockIn> selectStockInPage(int pageNum, int pageSize, String orderNo, Long warehouseId, String inType, Integer status, String warehouseScope);
 
     /** 详情（含明细 lines） */
     WmsStockIn getDetail(Long stockInId);

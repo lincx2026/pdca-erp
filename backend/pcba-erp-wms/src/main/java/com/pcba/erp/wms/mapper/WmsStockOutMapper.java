@@ -26,6 +26,7 @@ public interface WmsStockOutMapper extends BaseMapper<WmsStockOut> {
             "FROM wms_stock_out s " +
             "LEFT JOIN wms_warehouse w ON s.warehouse_id = w.warehouse_id " +
             "<where> " +
+            "  <if test='warehouseScope != null and warehouseScope != &quot;&quot;'> AND (w.warehouse_scope = #{warehouseScope} OR (#{warehouseScope} = 'ELECTRONIC' AND (w.warehouse_scope IS NULL OR w.warehouse_scope = ''))) </if>" +
             "  <if test='orderNo != null and orderNo != \"\"'> " +
             "    AND s.order_no LIKE CONCAT('%', CAST(#{orderNo} AS TEXT), '%') " +
             "  </if> " +
@@ -41,5 +42,5 @@ public interface WmsStockOutMapper extends BaseMapper<WmsStockOut> {
                                           @Param("saleOrderNo") String saleOrderNo,
                                           @Param("warehouseId") Long warehouseId,
                                           @Param("outType") String outType,
-                                          @Param("status") Integer status);
+                                          @Param("status") Integer status, @Param("warehouseScope") String warehouseScope);
 }

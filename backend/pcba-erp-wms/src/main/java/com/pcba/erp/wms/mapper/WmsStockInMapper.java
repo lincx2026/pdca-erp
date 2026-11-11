@@ -23,6 +23,7 @@ public interface WmsStockInMapper extends BaseMapper<WmsStockIn> {
             "FROM wms_stock_in s " +
             "LEFT JOIN wms_warehouse w ON s.warehouse_id = w.warehouse_id " +
             "<where> " +
+            "  <if test='warehouseScope != null and warehouseScope != &quot;&quot;'> AND (w.warehouse_scope = #{warehouseScope} OR (#{warehouseScope} = 'ELECTRONIC' AND (w.warehouse_scope IS NULL OR w.warehouse_scope = ''))) </if>" +
             "  <if test='orderNo!=null and orderNo!=\"\"'> AND s.order_no LIKE CONCAT('%',CAST(#{orderNo} AS TEXT),'%') </if>" +
             "  <if test='warehouseId!=null'> AND s.warehouse_id = #{warehouseId} </if>" +
             "  <if test='inType!=null and inType!=\"\"'> AND s.in_type = #{inType} </if>" +
@@ -35,7 +36,7 @@ public interface WmsStockInMapper extends BaseMapper<WmsStockIn> {
                                        @Param("warehouseId") Long warehouseId,
                                        @Param("inType") String inType,
                                        @Param("status") Integer status,
-                                       @Param("dataScope") String dataScope);
+                                       @Param("dataScope") String dataScope, @Param("warehouseScope") String warehouseScope);
 
     /** 查询某前缀下最大的入库单号（用于生成序号） */
     @Select("SELECT MAX(order_no) FROM wms_stock_in WHERE order_no LIKE CONCAT(CAST(#{prefix} AS TEXT), '%')")

@@ -662,15 +662,9 @@ async function openStockIn(row: any) {
   if (!warehouseOptions.value.length) {
     try { warehouseOptions.value = (await warehouseApi.options() as any) || [] } catch { warehouseOptions.value = [] }
   }
-  const pickDefault = () => {
-    if (!warehouseOptions.value.length) return undefined
-    const w1 = warehouseOptions.value.find((w:any) => (w.warehouseCode+'').toUpperCase().includes('WH-01'))
-    if (w1) return w1.warehouseId
-    const w2 = warehouseOptions.value.find((w:any) => (w.warehouseName||'').includes('原材料'))
-    if (w2) return w2.warehouseId
-    return warehouseOptions.value[0]?.warehouseId
-  }
-  si.warehouseId = pickDefault()
+  const scope = row.bizCategory === 'ACCESSORY' ? 'ACCESSORY' : row.bizCategory === 'ELECTRONIC' ? 'ELECTRONIC' : ''
+  const candidates = warehouseOptions.value.filter(w => scope && w.warehouseScope === scope)
+  si.warehouseId = candidates.length === 1 ? candidates[0].warehouseId : undefined
   si.stockInNo = ''
   si.stockInDate = todayStr()
   si.commonBatch = `PO${row.poId}-${todayStr().replace(/-/g,'')}`

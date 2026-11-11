@@ -1,5 +1,6 @@
 <template>
   <div class="wms-stockout-page">
+    <el-alert v-if="warehouseNotice" :title="warehouseNotice" type="warning" :closable="false" show-icon />
     <!-- 搜索栏 -->
     <el-card shadow="never">
       <el-form :inline="true" :model="q" @submit.prevent>
@@ -300,10 +301,15 @@ function statusTag(v?: number): 'info' | 'warning' | 'primary' | 'success' | 'da
 }
 
 // ============ 仓库下拉 ============
+const warehouseNotice = ref('')
 const warehouseOptions = ref<WmsWarehouse[]>([])
 async function loadWarehouseOptions() {
   try {
-    warehouseOptions.value = (await warehouseApi.options() as any) || []
+    const all: WmsWarehouse[] = (await warehouseApi.options() as any) || []
+    const scope = String(route.meta.warehouseScope || '')
+    warehouseOptions.value = all.filter(w => !scope || w.warehouseScope === scope || (scope === 'ELECTRONIC' && !w.warehouseScope))
+    if (scope && all.some(w => !w.warehouseScope)) warehouseNotice.value = '部分仓库尚未设置业务分组，请在仓库档案中确认；未分组的历史数据暂显示在电子仓。'
+    else if (scope && !warehouseOptions.value.length) warehouseNotice.value = '尚无此业务分组的仓库，请先在仓库档案中设置。'
   } catch {
     warehouseOptions.value = []
   }
@@ -370,7 +376,7 @@ async function loadList() {
   try {
     q.pageNum = pager.pageNum
     q.pageSize = pager.pageSize
-    const resp: any = await stockOutApi.list(q as any)
+    const resp: any = await stockOutApi.list({ ...q, warehouseScope: String(route.meta.warehouseScope || '') || undefined } as any)
     rows.value = resp?.rows || []
     pager.total = resp?.total || 0
   } finally {

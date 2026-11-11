@@ -45,6 +45,7 @@ public interface WmsInventoryMapper extends BaseMapper<WmsInventory> {
             "LEFT JOIN wms_warehouse w ON i.warehouse_id = w.warehouse_id " +
             "LEFT JOIN pdm_material m ON i.material_id = m.material_id " +
             "<where>" +
+            "  <if test='warehouseScope != null and warehouseScope != &quot;&quot;'> AND (w.warehouse_scope = #{warehouseScope} OR (#{warehouseScope} = 'ELECTRONIC' AND (w.warehouse_scope IS NULL OR w.warehouse_scope = ''))) </if>" +
             "  <if test='warehouseId != null'>" +
             "    AND i.warehouse_id = #{warehouseId}" +
             "  </if>" +
@@ -64,7 +65,7 @@ public interface WmsInventoryMapper extends BaseMapper<WmsInventory> {
                                            @Param("warehouseId") Long warehouseId,
                                            @Param("materialCode") String materialCode,
                                            @Param("materialName") String materialName,
-                                           @Param("status") Integer status);
+                                           @Param("status") Integer status, @Param("warehouseScope") String warehouseScope);
 
     /** 按 仓库+物料+批次 查询库存（唯一键） */
     @Select("SELECT * FROM wms_inventory " +

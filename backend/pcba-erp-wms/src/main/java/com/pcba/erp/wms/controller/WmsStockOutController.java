@@ -44,9 +44,10 @@ public class WmsStockOutController {
                                  @RequestParam(required = false) String saleOrderNo,
                                  @RequestParam(required = false) Long warehouseId,
                                  @RequestParam(required = false) String outType,
-                                 @RequestParam(required = false) Integer status) {
+                                 @RequestParam(required = false) Integer status,
+                                 @RequestParam(required = false) String warehouseScope) {
         IPage<WmsStockOut> page = stockOutService.selectStockOutPage(pageNum, pageSize,
-                orderNo, saleOrderNo, warehouseId, outType, status);
+                orderNo, saleOrderNo, warehouseId, outType, status, warehouseScope);
         TableDataInfo info = new TableDataInfo();
         info.setRows(page.getRecords());
         info.setTotal(page.getTotal());

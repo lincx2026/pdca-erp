@@ -45,9 +45,9 @@ const routes: RouteRecordRaw[] = [
       // 仓库管理(阶段二 WMS) - 方案 C: 电子仓库 + 成品仓库 两个子域并列, 路由扁平化但权限/菜单分开
       //   电子仓库 (menu 1851): 只管元器件/辅料/包材
       { path: 'wms/warehouse',        name: 'Warehouse', component: () => import('@/views/wms/warehouse/index.vue'), meta: { title: '仓库档案', icon: 'House',       perms: ['wms:warehouse:list'] } },
-      { path: 'wms/inventory',        name: 'Inventory', component: () => import('@/views/wms/inventory/index.vue'), meta: { title: '电子料库存', icon: 'Box',         perms: ['wms:inventory:list'] } },
-      { path: 'wms/stock-in',         name: 'StockIn',   component: () => import('@/views/wms/stock-in/index.vue'),  meta: { title: '电子料入库', icon: 'Download',    perms: ['wms:stockin:list'] } },
-      { path: 'wms/stock-out',        name: 'StockOut',  component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '电子料出库', icon: 'Upload',      perms: ['wms:stockout:list'] } },
+      { path: 'wms/inventory',        name: 'Inventory', component: () => import('@/views/wms/inventory/index.vue'), meta: { title: '电子料库存', icon: 'Box', perms: ['wms:inventory:list'], warehouseScope: 'ELECTRONIC' } },
+      { path: 'wms/stock-in',         name: 'StockIn',   component: () => import('@/views/wms/stock-in/index.vue'),  meta: { title: '电子料入库', icon: 'Download', perms: ['wms:stockin:list'], warehouseScope: 'ELECTRONIC' } },
+      { path: 'wms/stock-out',        name: 'StockOut',  component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '电子料出库', icon: 'Upload', perms: ['wms:stockout:list'], warehouseScope: 'ELECTRONIC' } },
       { path: 'sal/stock-out',        name: 'SalesStockOut', component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '销售出库', icon: 'Upload', perms: ['wms:stockout:list'] } },
       //   成品仓库 (menu 1852): 只管成品整机 (第 1 期扩展: 完工入库单/成品出库单/流水)
       { path: 'fas/finished-inbound',  name: 'FinishedInbound',  component: () => import('@/views/fas/finished-inbound/index.vue'),  meta: { title: '完工入库单', icon: 'Download',   perms: ['wh:finished:inbound:list'] } },
@@ -56,6 +56,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'fas/finished-flow',     name: 'FinishedFlow',     component: () => import('@/views/fas/finished-flow/index.vue'),     meta: { title: '出入库流水', icon: 'Document',   perms: ['wh:finished:flow:list'] } },
       //   配件仓库 (menu 1853): 外购线材/电池/适配器等, 先复用成品台账页面占位, 后续再补齐入库/出库/流水
       { path: 'fas/acc-stock',         name: 'AccStock',         component: () => import('@/views/fas/stock/index.vue'),             meta: { title: '配件库存台账', icon: 'Coin',     perms: ['wh:acc:list'], scope: 'acc' } },
+      { path: 'wms/accessory-inventory', name: 'AccessoryInventory', component: () => import('@/views/wms/inventory/index.vue'), meta: { title: '配件库存', icon: 'Box', perms: ['wms:inventory:list'], warehouseScope: 'ACCESSORY' } },
+      { path: 'wms/accessory-in', name: 'AccessoryStockIn', component: () => import('@/views/wms/stock-in/index.vue'), meta: { title: '配件入库', icon: 'Download', perms: ['wms:stockin:list'], warehouseScope: 'ACCESSORY' } },
+      { path: 'wms/accessory-out', name: 'AccessoryStockOut', component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '配件出库', icon: 'Upload', perms: ['wms:stockout:list'], warehouseScope: 'ACCESSORY' } },
       // 生产管理(阶段三 PMM)
       { path: 'pm/work-order',        name: 'WorkOrder', component: () => import('@/views/pm/work-order/index.vue'), meta: { title: '生产工单', icon: 'Tickets',     perms: ['pm:workorder:list'] } },
       { path: 'pm/work-bom',          name: 'WorkBom',   component: () => import('@/views/pm/work-bom/index.vue'),   meta: { title: '工单BOM', icon: 'Guide',       perms: ['pm:workbom:list'] } },

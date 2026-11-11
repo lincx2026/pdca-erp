@@ -332,6 +332,7 @@ export const warehouseApi = {
 
 // 库存台账
 export interface InventoryListQ extends PageQ {
+  warehouseScope?: string
   warehouseId?: number
   materialCode?: string
   materialName?: string
@@ -344,6 +345,7 @@ export const inventoryApi = {
 
 // 入库单
 export interface StockInListQ extends PageQ {
+  warehouseScope?: string
   orderNo?: string
   warehouseId?: number
   inType?: string
@@ -364,6 +366,7 @@ export const stockInApi = {
 
 // 出库单
 export interface StockOutListQ extends PageQ {
+  warehouseScope?: string
   orderNo?: string
   saleOrderNo?: string
   warehouseId?: number

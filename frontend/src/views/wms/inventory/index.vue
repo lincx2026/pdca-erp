@@ -1,5 +1,6 @@
 <template>
   <div class="inventory-page">
+    <el-alert v-if="warehouseNotice" :title="warehouseNotice" type="warning" :closable="false" show-icon />
     <!-- 搜索栏 -->
     <el-card class="search-card" shadow="never">
       <el-form :inline="true" :model="q" @submit.prevent="loadList">
@@ -33,7 +34,7 @@
     <el-card class="list-card" shadow="never">
       <template #header>
         <div class="list-header">
-          <div class="title"><span class="dot" />电子料库存</div>
+          <div class="title"><span class="dot" />{{ warehouseScope === 'ACCESSORY' ? '配件库存' : '电子料库存' }}</div>
         </div>
       </template>
 
@@ -76,10 +77,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { inventoryApi, warehouseApi } from '@/api'
 import type { WmsInventory, WmsWarehouse } from '@/types/models'
+
+const warehouseScope = String(useRoute().meta.warehouseScope || '')
+const warehouseNotice = ref('')
 
 // ============ 列表 ============
 const q = reactive({
@@ -93,7 +98,7 @@ const list = reactive({ loading: false, data: { rows: [] as WmsInventory[], tota
 async function loadList() {
   list.loading = true
   try {
-    const res = await inventoryApi.list({ ...q })
+    const res = await inventoryApi.list({ ...q, warehouseScope: warehouseScope || undefined })
     list.data = res || { rows: [], total: 0 }
   } catch (e: any) {
     ElMessage.error(e.message || '查询失败')
@@ -110,7 +115,12 @@ function resetQ() {
 // ============ 仓库下拉 ============
 const warehouseOpts = ref<WmsWarehouse[]>([])
 async function loadWarehouseOpts() {
-  try { warehouseOpts.value = await warehouseApi.options() || [] }
+  try {
+    const all = await warehouseApi.options() || []
+    warehouseOpts.value = all.filter(w => w.warehouseScope === warehouseScope || (warehouseScope === 'ELECTRONIC' && !w.warehouseScope))
+    if (all.some(w => !w.warehouseScope)) warehouseNotice.value = '部分仓库尚未设置业务分组，请在仓库档案中确认；未分组的历史数据暂显示在电子仓。'
+    else if (!warehouseOpts.value.length) warehouseNotice.value = '尚无此业务分组的仓库，请先在仓库档案中设置。'
+  }
   catch { warehouseOpts.value = [] }
 }
 

@@ -1,5 +1,6 @@
 <template>
   <div class="wms-stockin-page">
+    <el-alert v-if="warehouseNotice" :title="warehouseNotice" type="warning" :closable="false" show-icon />
     <!-- 查询区 -->
     <el-card shadow="never">
       <el-form :inline="true" :model="q" @submit.prevent>
@@ -233,6 +234,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, Delete } from '@element-plus/icons-vue'
 import { stockInApi, warehouseApi, custMapApi } from '@/api'
@@ -281,10 +283,17 @@ function fmtMoney(v: any) {
 }
 
 // ============ 下拉数据 ============
+const warehouseScope = String(useRoute().meta.warehouseScope || '')
+const warehouseNotice = ref('')
 const warehouseOpts = ref<any[]>([])
 const materialOpts = ref<any[]>([])
 async function loadWarehouseOpts() {
-  try { warehouseOpts.value = (await warehouseApi.options()) || [] }
+  try {
+    const all = (await warehouseApi.options()) || []
+    warehouseOpts.value = all.filter(w => w.warehouseScope === warehouseScope || (warehouseScope === 'ELECTRONIC' && !w.warehouseScope))
+    if (all.some(w => !w.warehouseScope)) warehouseNotice.value = '部分仓库尚未设置业务分组，请在仓库档案中确认；未分组的历史数据暂显示在电子仓。'
+    else if (!warehouseOpts.value.length) warehouseNotice.value = '尚无此业务分组的仓库，请先在仓库档案中设置。'
+  }
   catch { warehouseOpts.value = [] }
 }
 async function loadMaterialOpts(keyword?: string) {
@@ -320,6 +329,7 @@ async function loadList() {
   try {
     const resp: any = await stockInApi.list({
       ...q,
+      warehouseScope: warehouseScope || undefined,
       pageNum: pager.pageNum,
       pageSize: pager.pageSize
     })

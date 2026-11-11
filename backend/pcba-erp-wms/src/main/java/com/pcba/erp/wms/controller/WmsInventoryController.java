@@ -31,8 +31,9 @@ public class WmsInventoryController {
                                  @RequestParam(required = false) Long warehouseId,
                                  @RequestParam(required = false) String materialCode,
                                  @RequestParam(required = false) String materialName,
-                                 @RequestParam(required = false) Integer status) {
-        IPage<WmsInventory> page = inventoryService.selectInventoryPage(pageNum, pageSize, warehouseId, materialCode, materialName, status);
+                                 @RequestParam(required = false) Integer status,
+                                 @RequestParam(required = false) String warehouseScope) {
+        IPage<WmsInventory> page = inventoryService.selectInventoryPage(pageNum, pageSize, warehouseId, materialCode, materialName, status, warehouseScope);
         TableDataInfo info = new TableDataInfo();
         info.setRows(page.getRecords());
         info.setTotal(page.getTotal());

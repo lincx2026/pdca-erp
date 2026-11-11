@@ -47,9 +47,9 @@ public class WmsStockInServiceImpl implements IWmsStockInService {
     @DataScope(deptField = "s.dept_id", userField = "s.create_by")
     public IPage<WmsStockIn> selectStockInPage(int pageNum, int pageSize,
                                                 String orderNo, Long warehouseId,
-                                                String inType, Integer status) {
+                                                String inType, Integer status, String warehouseScope) {
         String ds = DataScopeThreadLocal.getAndClear();
-        List<WmsStockIn> list = stockInMapper.selectStockInPage(orderNo, warehouseId, inType, status, ds);
+        List<WmsStockIn> list = stockInMapper.selectStockInPage(orderNo, warehouseId, inType, status, ds, warehouseScope);
         Page<WmsStockIn> page = new Page<>(pageNum, pageSize);
         long total = list.size();
         int from = Math.min((pageNum - 1) * pageSize, list.size());

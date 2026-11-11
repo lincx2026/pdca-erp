@@ -31,8 +31,9 @@ public class WmsStockInController {
                                  @RequestParam(required = false) String orderNo,
                                  @RequestParam(required = false) Long warehouseId,
                                  @RequestParam(required = false) String inType,
-                                 @RequestParam(required = false) Integer status) {
-        IPage<WmsStockIn> page = stockInService.selectStockInPage(pageNum, pageSize, orderNo, warehouseId, inType, status);
+                                 @RequestParam(required = false) Integer status,
+                                 @RequestParam(required = false) String warehouseScope) {
+        IPage<WmsStockIn> page = stockInService.selectStockInPage(pageNum, pageSize, orderNo, warehouseId, inType, status, warehouseScope);
         TableDataInfo info = new TableDataInfo();
         info.setRows(page.getRecords());
         info.setTotal(page.getTotal());

@@ -13,9 +13,8 @@ import com.pcba.erp.wms.entity.WmsStockOut;
 public interface IWmsStockOutService extends IService<WmsStockOut> {
 
     /** 分页查询（联表回填仓库名称） */
-    IPage<WmsStockOut> selectStockOutPage(int pageNum, int pageSize,
-                                          String orderNo, String saleOrderNo, Long warehouseId,
-                                          String outType, Integer status);
+    default IPage<WmsStockOut> selectStockOutPage(int pageNum, int pageSize, String orderNo, String saleOrderNo, Long warehouseId, String outType, Integer status) { return selectStockOutPage(pageNum,pageSize,orderNo,saleOrderNo,warehouseId,outType,status,null); }
+    IPage<WmsStockOut> selectStockOutPage(int pageNum, int pageSize, String orderNo, String saleOrderNo, Long warehouseId, String outType, Integer status, String warehouseScope);
 
     /** 详情（含明细 lines） */
     WmsStockOut getDetail(Long stockOutId);

@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PostgresqlIntegrationTest {
     @Autowired IWmsInventoryService inventory;
     @Autowired IWmsStockOutService stockOut;
+    @Autowired com.pcba.erp.wms.service.IWmsStockInService stockIn;
     @Autowired IPmmFasStockService finishedStock;
     @Autowired JdbcTemplate jdbc;
     @Autowired SqlSessionFactory sessions;
@@ -320,6 +321,26 @@ class PostgresqlIntegrationTest {
         }
         System.out.println("PostgreSQL mapper SELECT plans checked: " + checked);
         assertTrue(failures.isEmpty(), String.join("\n",failures));
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void warehouseViewsSeparateConfiguredGroupsAndKeepUnclassifiedHistoryVisible() {
+        jdbc.execute("CREATE TEMP TABLE wms_warehouse (LIKE public.wms_warehouse INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE wms_inventory (LIKE public.wms_inventory INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE wms_stock_in (LIKE public.wms_stock_in INCLUDING ALL) ON COMMIT DROP");
+        jdbc.execute("CREATE TEMP TABLE wms_stock_out (LIKE public.wms_stock_out INCLUDING ALL) ON COMMIT DROP");
+        jdbc.update("INSERT INTO wms_warehouse(warehouse_id, warehouse_code, warehouse_name, warehouse_scope) VALUES "
+                + "(101,'ELEC','Electronic','ELECTRONIC'),(102,'ACC','Accessory','ACCESSORY'),(103,'OLD','Legacy',NULL)");
+        jdbc.update("INSERT INTO wms_inventory(warehouse_id, material_id) VALUES (101,9001),(102,9002),(103,9003)");
+        jdbc.update("INSERT INTO wms_stock_in(order_no, warehouse_id) VALUES ('TEST-IN-1',101),('TEST-IN-2',102),('TEST-IN-3',103)");
+        jdbc.update("INSERT INTO wms_stock_out(order_no, warehouse_id) VALUES ('TEST-OUT-1',101),('TEST-OUT-2',102),('TEST-OUT-3',103)");
+        assertEquals(Set.of(101L,103L), inventory.selectInventoryPage(1,20,null,null,null,null,"ELECTRONIC").getRecords().stream().map(x -> x.getWarehouseId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(102L), inventory.selectInventoryPage(1,20,null,null,null,null,"ACCESSORY").getRecords().stream().map(x -> x.getWarehouseId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(101L,103L), stockIn.selectStockInPage(1,20,"TEST-IN",null,null,null,"ELECTRONIC").getRecords().stream().map(x -> x.getWarehouseId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(102L), stockIn.selectStockInPage(1,20,"TEST-IN",null,null,null,"ACCESSORY").getRecords().stream().map(x -> x.getWarehouseId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(101L,103L), stockOut.selectStockOutPage(1,20,"TEST-OUT",null,null,null,null,"ELECTRONIC").getRecords().stream().map(x -> x.getWarehouseId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(102L), stockOut.selectStockOutPage(1,20,"TEST-OUT",null,null,null,null,"ACCESSORY").getRecords().stream().map(x -> x.getWarehouseId()).collect(java.util.stream.Collectors.toSet()));
     }
 
     @Test

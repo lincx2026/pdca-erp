@@ -26,9 +26,9 @@ public class WmsInventoryServiceImpl implements IWmsInventoryService {
     @Override
     public IPage<WmsInventory> selectInventoryPage(int pageNum, int pageSize,
                                                     Long warehouseId, String materialCode,
-                                                    String materialName, Integer status) {
+                                                    String materialName, Integer status, String warehouseScope) {
         Page<WmsInventory> page = new Page<>(pageNum, pageSize);
-        return inventoryMapper.selectInventoryPage(page, warehouseId, materialCode, materialName, status);
+        return inventoryMapper.selectInventoryPage(page, warehouseId, materialCode, materialName, status, warehouseScope);
     }
 
     @Override

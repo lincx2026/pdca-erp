@@ -34,6 +34,10 @@ public class WmsWarehouse implements Serializable {
     @Size(max = 20, message = "仓库类型不超过20字符")
     private String warehouseType;
 
+    /** 展示分组由管理员确认，不自动变更仓库或库存。 */
+    @jakarta.validation.constraints.Pattern(regexp = "|ELECTRONIC|ACCESSORY|FINISHED")
+    private String warehouseScope;
+
     @Size(max = 500, message = "地址不超过500字符")
     private String address;
 

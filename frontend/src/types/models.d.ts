@@ -325,6 +325,7 @@ export interface PdmCustomerMaterialMap {
 
 /** 仓库主档 */
 export interface WmsWarehouse {
+  warehouseScope?: string
   warehouseId?: number
   warehouseCode: string
   warehouseName: string

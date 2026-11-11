@@ -46,6 +46,7 @@
             <el-tag :type="typeTagType(row.warehouseType)" size="small">{{ typeLabel(row.warehouseType) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="仓库分组" width="110"><template #default="{row}">{{ scopeLabel(row.warehouseScope) }}</template></el-table-column>
         <el-table-column label="地址" prop="address" min-width="200" show-overflow-tooltip />
         <el-table-column label="管理员" prop="manager" width="120" />
         <el-table-column label="电话" prop="phone" width="140" />
@@ -98,6 +99,9 @@
                 <el-option v-for="t in warehouseTypes" :key="t.value" :label="t.label" :value="t.value" />
               </el-select>
             </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="仓库分组"><el-select v-model="editDlg.form.warehouseScope" placeholder="请选择分组" style="width:100%"><el-option label="未分组" value="" /><el-option label="电子仓库" value="ELECTRONIC" /><el-option label="配件仓库" value="ACCESSORY" /><el-option label="成品仓库" value="FINISHED" /></el-select></el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="管理员">
@@ -166,6 +170,8 @@ import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import { warehouseApi } from '@/api'
 import type { WmsWarehouse } from '@/types/models'
+
+const scopeLabel = (s?: string) => ({ ELECTRONIC: '电子仓库', ACCESSORY: '配件仓库', FINISHED: '成品仓库' } as Record<string,string>)[s || ''] || '未分组'
 
 // ============ 类型映射 ============
 /** 方案 C: 电子仓库 = WMS 专用, 不再管成品。

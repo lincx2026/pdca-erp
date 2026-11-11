@@ -176,11 +176,14 @@ onBeforeUnmount(() => { requestSequence++ })
 
 const exportPdf = async () => {
   if (!canPrint.value || !printRef.value || exporting.value) return
+  const exportId = detailOrder.value.poId
+  const name = String(detailOrder.value.poNo || '采购订单').replace(/[\\/:*?"<>|]/g, '_')
+  const sections = Array.from(printRef.value.querySelectorAll<HTMLElement>('.a4-page'))
   exporting.value = true
   try {
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
     const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-    const sections = Array.from(printRef.value.querySelectorAll<HTMLElement>('.a4-page'))
+    if (!sections.length) throw new Error('没有可导出的页面')
     for (let i = 0; i < sections.length; i++) {
       const canvas = await html2canvas(sections[i], {
         scale: 2, backgroundColor: '#fff',
@@ -194,7 +197,7 @@ const exportPdf = async () => {
       const scale = Math.min(190 / canvas.width, 277 / canvas.height)
       doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, canvas.width * scale, canvas.height * scale)
     }
-    const name = String(detailOrder.value?.poNo || '采购订单').replace(/[\\/:*?"<>|]/g, '_')
+    if (!props.visible || String(detailOrder.value?.poId) !== String(exportId)) throw new Error('订单已切换')
     doc.save(`${name}.pdf`)
   } catch { ElMessage.error('PDF 生成失败，请重试') }
   finally { exporting.value = false }

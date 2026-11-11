@@ -13,9 +13,8 @@ import java.math.BigDecimal;
 public interface IWmsInventoryService {
 
     /** 分页查询 (联表仓库+物料) */
-    IPage<WmsInventory> selectInventoryPage(int pageNum, int pageSize,
-                                           Long warehouseId, String materialCode,
-                                           String materialName, Integer status);
+    default IPage<WmsInventory> selectInventoryPage(int pageNum, int pageSize, Long warehouseId, String materialCode, String materialName, Integer status) { return selectInventoryPage(pageNum,pageSize,warehouseId,materialCode,materialName,status,null); }
+    IPage<WmsInventory> selectInventoryPage(int pageNum, int pageSize, Long warehouseId, String materialCode, String materialName, Integer status, String warehouseScope);
 
     /** 详情 */
     WmsInventory getDetail(Long inventoryId);

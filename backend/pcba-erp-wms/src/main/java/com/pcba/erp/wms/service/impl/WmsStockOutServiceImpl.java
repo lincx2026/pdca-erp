@@ -48,9 +48,9 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
     @Override
     public IPage<WmsStockOut> selectStockOutPage(int pageNum, int pageSize,
                                                   String orderNo, String saleOrderNo, Long warehouseId,
-                                                  String outType, Integer status) {
+                                                  String outType, Integer status, String warehouseScope) {
         Page<WmsStockOut> page = new Page<>(pageNum, pageSize);
-        return baseMapper.selectStockOutPage(page, orderNo, saleOrderNo, warehouseId, outType, status);
+        return baseMapper.selectStockOutPage(page, orderNo, saleOrderNo, warehouseId, outType, status, warehouseScope);
     }
 
     /* ========== 详情 ========== */
