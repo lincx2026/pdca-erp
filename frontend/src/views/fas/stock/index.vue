@@ -150,7 +150,7 @@ const route = useRoute()
 // ====== 根据路由 meta.scope 区分成品仓(FG) vs 配件仓(ACC) ======
 const SCOPE: 'fg' | 'acc' = ((route.meta as any)?.scope === 'acc') ? 'acc' : 'fg'
 const pageLabel = computed(() => SCOPE === 'acc'
-  ? { isAcc: true, title: '配件库存台账', productField: '配件名称', sourceField: '来源采购/业务' }
+  ? { isAcc: true, title: '历史配件台账', productField: '配件名称', sourceField: '来源采购/业务' }
   : { isAcc: false, title: '成品库存台账', productField: '成品名称', sourceField: '来源工单' }
 )
 const permOut    = computed(() => SCOPE === 'acc' ? 'wh:acc:out'    : 'wh:finished:out')

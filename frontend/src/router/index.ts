@@ -55,7 +55,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'fas/stock',             name: 'FinishedStock',    component: () => import('@/views/fas/stock/index.vue'),             meta: { title: '成品库存台账', icon: 'Box',      perms: ['wh:finished:list'] } },
       { path: 'fas/finished-flow',     name: 'FinishedFlow',     component: () => import('@/views/fas/finished-flow/index.vue'),     meta: { title: '出入库流水', icon: 'Document',   perms: ['wh:finished:flow:list'] } },
       //   配件仓库 (menu 1853): 外购线材/电池/适配器等, 先复用成品台账页面占位, 后续再补齐入库/出库/流水
-      { path: 'fas/acc-stock',         name: 'AccStock',         component: () => import('@/views/fas/stock/index.vue'),             meta: { title: '配件库存台账', icon: 'Coin',     perms: ['wh:acc:list'], scope: 'acc' } },
+      { path: 'fas/acc-stock',         name: 'AccStock',         component: () => import('@/views/fas/stock/index.vue'),             meta: { title: '历史配件台账', icon: 'Coin',     perms: ['wh:acc:list'], scope: 'acc' } },
       { path: 'wms/accessory-inventory', name: 'AccessoryInventory', component: () => import('@/views/wms/inventory/index.vue'), meta: { title: '配件库存', icon: 'Box', perms: ['wms:inventory:list'], warehouseScope: 'ACCESSORY' } },
       { path: 'wms/accessory-in', name: 'AccessoryStockIn', component: () => import('@/views/wms/stock-in/index.vue'), meta: { title: '配件入库', icon: 'Download', perms: ['wms:stockin:list'], warehouseScope: 'ACCESSORY' } },
       { path: 'wms/accessory-out', name: 'AccessoryStockOut', component: () => import('@/views/wms/stock-out/index.vue'), meta: { title: '配件出库', icon: 'Upload', perms: ['wms:stockout:list'], warehouseScope: 'ACCESSORY' } },
