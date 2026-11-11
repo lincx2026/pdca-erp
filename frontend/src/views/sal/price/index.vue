@@ -30,7 +30,7 @@
 
     <!-- 工具栏 -->
     <div class="table-toolbar">
-      <el-button type="primary" v-hasPermi="'sal:price:add'" @click="openDialog()"><el-icon><Plus /></el-icon> 新增报价</el-button>
+      <el-button type="primary" v-hasPermi="'sal:price:add'" @click="quotationPanel?.openNew()"><el-icon><Plus /></el-icon> 新增报价</el-button>
       <el-button type="success" v-hasPermi="'sal:price:add'" @click="openBatchDialog()"><el-icon><Plus /></el-icon> 批量新增</el-button>
       <el-button v-hasPermi="'sal:price:convertOrder'" type="warning" :disabled="selConvertable.length === 0"
          @click="openConvertDialog">
@@ -45,6 +45,8 @@
       <el-button v-hasPermi="'sal:price:export'" :loading="exporting" @click="doExport"><el-icon><Download /></el-icon> 导出</el-button>
     </div>
 
+    <SalQuotationPanel ref="quotationPanel" :customers="customers" :filters="query" :only-valid="onlyValid" />
+    <div style="font-weight:600;margin:14px 0 8px">历史单物料报价</div>
     <!-- 表格 -->
     <el-table v-loading="loading" :data="list" stripe border
               @selection-change="onSelectionChange" ref="priceTableRef">
@@ -331,6 +333,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, RefreshLeft, Plus, Download, Goods } from '@element-plus/icons-vue'
 import { salPriceApi, salCustomerApi, materialApi, salOrderApi, warehouseApi, userApi } from '@/api'
+import SalQuotationPanel from './SalQuotationPanel.vue'
+const quotationPanel = ref<InstanceType<typeof SalQuotationPanel>>()
 
 const statusOpts = [
   { v: 0, l: '草稿' }, { v: 1, l: '待审核' }, { v: 2, l: '已审核' }, { v: 3, l: '已停用' }, { v: 4, l: '已驳回' }, { v: 5, l: '已转订单' }

@@ -1013,6 +1013,15 @@ export interface SalPriceListQ extends PageQ {
   customerName?: string
   onlyValid?: number
 }
+export const salQuotationApi = {
+  list: (query: any) => request.get<any>('/sal/quotation/list', query),
+  get: (id: number) => request.get<any>(`/sal/quotation/${id}`),
+  add: (body: any) => request.post<number>('/sal/quotation', body),
+  edit: (id: number, body: any) => request.put<number>(`/sal/quotation/${id}`, body),
+  remove: (id: number) => request.delete(`/sal/quotation/${id}`),
+  action: (id: number, action: string, body?: any) => request.put(`/sal/quotation/${id}/${action}`, body)
+}
+
 export const salPriceApi = {
   list:       (p: SalPriceListQ) => request.get<{ rows: any[]; total: number }>('/sal/price/list', p) as any,
   get:        (id: number) => request.get<any>('/sal/price/' + id),

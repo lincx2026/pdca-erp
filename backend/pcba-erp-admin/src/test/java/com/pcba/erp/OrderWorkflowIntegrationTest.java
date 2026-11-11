@@ -51,6 +51,8 @@ class OrderWorkflowIntegrationTest {
     @Autowired com.pcba.erp.sal.service.ISalKittingService kitting;
     @Autowired IScmPurchaseRequisitionService requisitions;
     @Autowired com.pcba.erp.scm.service.IScmPurchaseOrderService purchaseOrders;
+    @Autowired com.pcba.erp.sal.service.impl.SalQuotationService quotations;
+    @Autowired com.pcba.erp.sal.service.ISalCustomerPriceService customerPrices;
     @Autowired com.pcba.erp.scm.service.IScmPurchaseOrderLineService purchaseLines;
     @Autowired IScmPurchaseRequisitionLineService reqLines;
     @Autowired ISalSalesOrderService sales;
@@ -58,6 +60,23 @@ class OrderWorkflowIntegrationTest {
     @Autowired com.pcba.erp.sal.service.ISalSalesOrderLineService salesLines;
     @Autowired IWmsStockOutService stockOut;
     @Autowired IWmsInventoryService inventory;
+
+    @Test @Transactional
+    void quotationHasFreeTextHeaderAndApprovedLinkedMaterialPrices() {
+        Long customer = jdbc.queryForObject("INSERT INTO scm_customer(customer_code,customer_name) VALUES ('TEST-QUOTE-GROUP','customer') RETURNING customer_id",Long.class);
+        Long a = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-QUOTE-GROUP-A','a',1) RETURNING material_id",Long.class);
+        Long b = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-QUOTE-GROUP-B','b',1) RETURNING material_id",Long.class);
+        var first = new com.pcba.erp.sal.entity.SalCustomerPrice(); first.setMaterialId(a); first.setUnitPrice(new BigDecimal("33")); first.setTaxRate(new BigDecimal("13")); first.setMinQty(BigDecimal.ZERO);
+        var second = new com.pcba.erp.sal.entity.SalCustomerPrice(); second.setMaterialId(b); second.setUnitPrice(new BigDecimal("5")); second.setTaxRate(new BigDecimal("13")); second.setMinQty(BigDecimal.ZERO);
+        Long id = quotations.save(null,new com.pcba.erp.sal.service.impl.SalQuotationService.Input("型号手填 E27M",customer,"CNY",LocalDate.now(),LocalDate.now().plusDays(30),"",List.of(first,second)));
+        assertEquals(2,((List<?>)quotations.detail(id).get("items")).size());
+        assertNull(customerPrices.matchPrice(customer,a,BigDecimal.ONE,LocalDate.now()));
+        quotations.transition(id,"submit",null); quotations.transition(id,"audit",null);
+        assertEquals(0,new BigDecimal("33").compareTo(customerPrices.matchPrice(customer,a,BigDecimal.ONE,LocalDate.now()).getUnitPrice()));
+        assertEquals(0,new BigDecimal("5").compareTo(customerPrices.matchPrice(customer,b,BigDecimal.ONE,LocalDate.now()).getUnitPrice()));
+        quotations.transition(id,"disable",null);
+        assertNull(customerPrices.matchPrice(customer,a,BigDecimal.ONE,LocalDate.now()));
+    }
 
     @Test @Transactional
     void inclusiveSalesPriceProducesCorrectOrderTotal() {

@@ -91,6 +91,7 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
         if (e.getTaxRate() == null) e.setTaxRate(new BigDecimal("13"));
         if (e.getMinQty() == null) e.setMinQty(BigDecimal.ZERO);
         // 新建恒为草稿, 清审批字段
+        e.setQuotationId(null);
         e.setStatus(0);
         e.setIsDefault(0);
         e.setAuditBy("");
@@ -140,6 +141,7 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
             e.setSpecification((String) mat.get("specification"));
             e.setUnit((String) mat.get("unit"));
             // 草稿状态 + 清审批字段 + 报价单号
+            e.setQuotationId(null);
             e.setStatus(0);
             e.setIsDefault(0);
             e.setAuditBy("");
@@ -158,6 +160,8 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
         if (e.getPriceId() == null) throw new ServiceException("ID不能为空");
         SalCustomerPrice old = mapper.selectById(e.getPriceId());
         if (old == null) throw new ServiceException("记录不存在");
+        if (old.getQuotationId() != null) throw new ServiceException("请通过报价单维护明细");
+        e.setQuotationId(null);
         if (old.getStatus() != null && old.getStatus() != 0 && old.getStatus() != 4)
             throw new ServiceException("仅草稿/已驳回状态可修改");
         if (e.getValidFrom() != null && e.getValidTo() != null && e.getValidFrom().isAfter(e.getValidTo()))
@@ -175,6 +179,7 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
     public boolean remove(Long id) {
         SalCustomerPrice r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
+        if (r.getQuotationId() != null) throw new ServiceException("请通过报价单维护明细");
         if (r.getStatus() != null && r.getStatus() != 0 && r.getStatus() != 4)
             throw new ServiceException("仅草稿/已驳回状态可删除");
         return mapper.deleteById(id) > 0;
@@ -324,6 +329,7 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
                 (rs, i) -> {
                     SalCustomerPrice p = new SalCustomerPrice();
                     p.setPriceId(rs.getLong("price_id"));
+                    p.setQuotationId(rs.getObject("quotation_id") == null ? null : ((Number) rs.getObject("quotation_id")).longValue());
                     p.setCustomerId(rs.getLong("customer_id"));
                     p.setCustomerCode(rs.getString("customer_code"));
                     p.setCustomerName(rs.getString("customer_name"));
@@ -347,6 +353,7 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
 
         // 3. 校验: 客户一致 + status=2 + orderId空
         for (SalCustomerPrice p : prices) {
+            if (p.getQuotationId() != null) throw new ServiceException("报价单明细请在销售订单中匹配价格，不可单独转单");
             if (!cId.equals(p.getCustomerId())) {
                 throw new ServiceException("报价条目 priceId=" + p.getPriceId() + " 的客户与所选不一致");
             }
@@ -474,6 +481,7 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
     private SalCustomerPrice mustGet(Long id) {
         SalCustomerPrice r = mapper.selectById(id);
         if (r == null) throw new ServiceException("记录不存在");
+        if (r.getQuotationId() != null) throw new ServiceException("请通过报价单操作明细");
         return r;
     }
 }

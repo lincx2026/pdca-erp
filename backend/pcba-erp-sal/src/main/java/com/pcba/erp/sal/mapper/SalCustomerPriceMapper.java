@@ -19,6 +19,7 @@ public interface SalCustomerPriceMapper extends BaseMapper<SalCustomerPrice> {
     @Select("<script>" +
             "SELECT * FROM sal_customer_price " +
             "<where>" +
+            "  AND quotation_id IS NULL " +
             "  <if test='customerId != null'> AND customer_id = #{customerId} </if>" +
             "  <if test='materialId != null'> AND material_id = #{materialId} </if>" +
             "  <if test=\"currency != null and currency != ''\"> AND currency = #{currency} </if>" +

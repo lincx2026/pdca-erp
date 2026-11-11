@@ -22,6 +22,7 @@ public class SalCustomerPrice implements Serializable {
 
     @TableId(type = IdType.AUTO)
     private Long priceId;
+    private Long quotationId;
     @NotNull private Long customerId;
     @Size(max=30)  private String customerCode;
     @Size(max=200) private String customerName;
