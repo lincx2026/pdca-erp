@@ -313,7 +313,8 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
             sl.setSpecification(ol.getSpecification());
             sl.setUnit(ol.getUnit());
             sl.setQuantity(remain);
-            sl.setBatchNo(pickAvailableBatch(warehouseId, ol.getMaterialId()));
+            // 批次在确认出库时按当时库存分配，允许出库单先于入库单生成。
+            sl.setBatchNo("");
             outLines.add(sl);
         }
         if (outLines.isEmpty()) throw new ServiceException("销售订单明细均已发完，无可生成出库的明细");
@@ -328,25 +329,5 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
         return stockOutId;
     }
 
-    /**
-     * FIFO 选取仓库+物料的第一个可用批次（available_qty>0，按 inventory_id 升序）。
-     * 无可用批次返回空串（confirm 时将由 WMS 库存预校验抛"库存不足"，符合业务语义）。
-     * 简化：单批次整行扣减；多批次分摊超出本次范围（后续如需可扩展为按批次拆行）。
-     */
-    private String pickAvailableBatch(Long warehouseId, Long materialId) {
-        if (warehouseId == null || materialId == null) return "";
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT batch_no FROM wms_inventory " +
-                            "WHERE warehouse_id=? AND material_id=? AND available_qty > 0 " +
-                            "ORDER BY inventory_id ASC LIMIT 1",
-                    warehouseId, materialId);
-            if (rows.isEmpty()) return "";
-            Object bn = rows.get(0).get("batch_no");
-            return bn == null ? "" : bn.toString();
-        } catch (Exception e) {
-            log.warn("[pickAvailableBatch] 查库存失败 wh={} mat={} msg={}", warehouseId, materialId, e.getMessage());
-            return "";
-        }
-    }
+
 }

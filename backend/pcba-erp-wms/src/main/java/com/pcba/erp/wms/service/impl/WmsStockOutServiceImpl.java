@@ -167,10 +167,12 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean confirmStockOut(Long stockOutId) {
+        jdbcTemplate.queryForList("SELECT stock_out_id FROM wms_stock_out WHERE stock_out_id=? FOR UPDATE", stockOutId);
         WmsStockOut so = requireStatus(stockOutId, 2);
         List<WmsStockOutLine> lines = lineMapper.selectByStockOutId(stockOutId);
         if (lines == null || lines.isEmpty()) throw new ServiceException("出库单明细为空，无法确认出库");
         Long warehouseId = so.getWarehouseId();
+        if ("SALES".equals(so.getOutType())) lines = allocateSalesBatches(warehouseId, lines);
 
         // 1. 预校验库存充足
         for (WmsStockOutLine line : lines) {
@@ -228,6 +230,52 @@ public class WmsStockOutServiceImpl extends ServiceImpl<WmsStockOutMapper, WmsSt
     /** 库存扣减：库存不足抛异常；存在则 quantity -= qty 并重算 availableQty */
     private void decreaseInventory(Long warehouseId, WmsStockOutLine line) {
         inventoryService.decreaseInventory(warehouseId, line.getMaterialId(), line.getBatchNo(), line.getQuantity());
+    }
+
+    /** 空批次的销售订单行在确认时按库存批次分配；显式批次不改变。 */
+    private List<WmsStockOutLine> allocateSalesBatches(Long warehouseId, List<WmsStockOutLine> lines) {
+        if (lines.stream().anyMatch(line -> line.getMaterialId() == null || nullToZero(line.getQuantity()).signum() <= 0))
+            throw new ServiceException("销售出库明细必须填写物料和大于零的数量");
+        Map<Long, List<Map<String, Object>>> batches = new HashMap<>();
+        Map<Long, BigDecimal> available = new HashMap<>();
+        for (Long materialId : lines.stream().map(WmsStockOutLine::getMaterialId).filter(Objects::nonNull).distinct().sorted().toList()) {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT inventory_id, batch_no, GREATEST(quantity-locked_qty,0) available FROM wms_inventory WHERE warehouse_id=? AND material_id=? AND status=1 ORDER BY inventory_id FOR UPDATE", warehouseId, materialId);
+            batches.put(materialId, rows);
+            for (Map<String, Object> row : rows) available.put(((Number)row.get("inventory_id")).longValue(), toDecimal(row.get("available")));
+        }
+        // 先预留显式批次，避免自动分配占用同单中手工指定的批次。
+        for (WmsStockOutLine line : lines) {
+            if (line.getSoLineId() != null && (line.getBatchNo() == null || line.getBatchNo().isBlank())) continue;
+            Map<String, Object> batch = batches.getOrDefault(line.getMaterialId(), List.of()).stream()
+                    .filter(row -> Objects.equals(String.valueOf(row.get("batch_no")), line.getBatchNo() == null ? "" : line.getBatchNo())).findFirst().orElse(null);
+            BigDecimal needed = nullToZero(line.getQuantity());
+            Long batchId = batch == null ? null : ((Number)batch.get("inventory_id")).longValue();
+            if (batchId == null || available.get(batchId).compareTo(needed) < 0)
+                throw new ServiceException("物料 " + line.getMaterialCode() + " 批次 " + (line.getBatchNo() == null ? "" : line.getBatchNo()) + " 可用库存不足");
+            available.put(batchId, available.get(batchId).subtract(needed));
+        }
+        List<WmsStockOutLine> allocated = new ArrayList<>();
+        for (WmsStockOutLine line : lines) {
+            if (line.getSoLineId() == null || (line.getBatchNo() != null && !line.getBatchNo().isBlank())) { allocated.add(line); continue; }
+            BigDecimal remaining = nullToZero(line.getQuantity());
+            boolean first = true;
+            for (Map<String, Object> batch : batches.getOrDefault(line.getMaterialId(), List.of())) {
+                Long batchId = ((Number)batch.get("inventory_id")).longValue();
+                BigDecimal take = remaining.min(available.get(batchId));
+                if (take.signum() <= 0) continue;
+                WmsStockOutLine part = new WmsStockOutLine();
+                org.springframework.beans.BeanUtils.copyProperties(line, part);
+                part.setQuantity(take); part.setBatchNo(String.valueOf(batch.get("batch_no")));
+                if (first) { lineMapper.updateById(part); first = false; }
+                else { part.setLineId(null); lineMapper.insert(part); }
+                allocated.add(part);
+                available.put(batchId, available.get(batchId).subtract(take));
+                remaining = remaining.subtract(take);
+                if (remaining.signum() <= 0) break;
+            }
+            if (remaining.signum() > 0) throw new ServiceException("物料 " + line.getMaterialCode() + " 可用库存不足，缺少 " + remaining);
+        }
+        return allocated;
     }
 
     private WmsInventory findInventory(Long warehouseId, WmsStockOutLine line) {
