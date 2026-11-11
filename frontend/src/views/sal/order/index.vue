@@ -193,8 +193,8 @@
         <el-table-column prop="returnedQty" label="已退数量" width="100" align="right">
           <template #default="{ row }">{{ row.returnedQty == null ? 0 : Number(row.returnedQty).toLocaleString() }}</template>
         </el-table-column>
-        <el-table-column prop="unitPrice" label="单价" width="110" align="right">
-          <template #default="{ row }">{{ row.unitPrice == null ? '-' : '¥' + Number(row.unitPrice).toFixed(2) }}</template>
+        <el-table-column label="含税单价" width="110" align="right">
+          <template #default="{ row }">{{ row.unitPrice == null && row.taxInclusiveUnitPrice == null ? '-' : '¥' + Number(row.taxInclusiveUnitPrice ?? Number(row.unitPrice) * (1 + Number(row.taxRate || 0))).toFixed(4) }}</template>
         </el-table-column>
         <el-table-column prop="lineAmount" label="行金额" width="120" align="right">
           <template #default="{ row }">{{ row.lineAmount == null ? '-' : '¥' + Number(row.lineAmount).toFixed(2) }}</template>
@@ -228,9 +228,9 @@
       <el-pagination v-model:current-page="salesBatchPage" :page-size="50" :total="salesBatchTotal" layout="total, prev, pager, next" @current-change="searchSalesBatch" />
       <el-table :data="salesBatchSelection" max-height="260" border><el-table-column prop="materialCode" label="已选物料" /><el-table-column prop="materialName" label="名称" />
         <el-table-column label="数量" width="180"><template #default="{ row }"><el-input-number v-model="row.batchQty" :min="0.0001" :precision="4" @change="matchBatchPrice(row)" /></template></el-table-column>
-        <el-table-column label="未税单价" width="180"><template #default="{ row }"><el-input-number v-model="row.batchPrice" :disabled="row.batchLoading" :min="0" :precision="4" placeholder="必填" @change="markBatchManual(row)" /></template></el-table-column>
+        <el-table-column label="含税单价" width="180"><template #default="{ row }"><el-input-number v-model="row.batchPrice" :disabled="row.batchLoading" :min="0" :precision="4" placeholder="必填" @change="markBatchManual(row)" /></template></el-table-column>
         <el-table-column label="价格来源" width="120"><template #default="{ row }">{{ row.batchLoading ? '匹配中' : row.batchSource === 'QUOTE' ? '客户报价' : row.batchSource === 'MANUAL' ? '手工填写' : '未匹配' }}</template></el-table-column>
-        <el-table-column label="含税金额" width="120"><template #default="{ row }">{{ row.batchPrice == null ? '—' : (Number(row.batchQty || 0) * Number(row.batchPrice) * (1 + Number(row.batchTaxRate || 0))).toFixed(2) }}</template></el-table-column>
+        <el-table-column label="含税金额" width="120"><template #default="{ row }">{{ row.batchPrice == null ? '—' : (Number(row.batchQty || 0) * Number(row.batchPrice)).toFixed(2) }}</template></el-table-column>
       </el-table>
       <template #footer><el-button @click="salesBatchDialog = false">取消</el-button><el-button type="primary" :loading="salesBatchSaving" :disabled="!salesBatchSelection.length" @click="saveSalesBatch">加入订单</el-button></template>
     </el-dialog>
@@ -263,7 +263,7 @@
         </el-row>
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="订单数量" prop="orderQty"><el-input-number v-model="lineForm.orderQty" :min="0" :precision="4" controls-position="right" style="width:100%" @change="onQtyChange" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="单价"><el-input-number v-model="lineForm.unitPrice" :min="0" :precision="4" controls-position="right" style="width:100%" @change="recalcLineAmount" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="含税单价"><el-input-number v-model="lineForm.taxInclusiveUnitPrice" :min="0" :precision="4" controls-position="right" style="width:100%" @change="recalcLineAmount" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="折扣率"><el-input-number v-model="lineForm.discountRate" :min="0" :max="0.9999" :step="0.01" :precision="4" controls-position="right" style="width:100%" @change="recalcLineAmount" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
@@ -275,7 +275,7 @@
           <el-col :span="12">
             <el-form-item label="行金额">
               <el-input-number v-model="lineForm.lineAmount" :min="0" :precision="2" controls-position="right" style="width:100%" />
-              <div style="color:var(--el-text-color-secondary); font-size:12px; margin-top:2px;">含税金额 = 数量 × 未税单价 × (1 - 折扣率) + 税额</div>
+              <div style="color:var(--el-text-color-secondary); font-size:12px; margin-top:2px;">含税金额 = 数量 × 含税单价 × (1 - 折扣率)</div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -283,7 +283,7 @@
           <el-col :span="12">
             <el-form-item label="税额">
               <el-input-number v-model="lineForm.taxAmount" :min="0" :precision="2" controls-position="right" style="width:100%" />
-              <div style="color:var(--el-text-color-secondary); font-size:12px; margin-top:2px;">默认 = 行金额 × 税率</div>
+              <div style="color:var(--el-text-color-secondary); font-size:12px; margin-top:2px;">税额 = 含税金额 − 含税金额 ÷ (1 + 税率)</div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -466,7 +466,7 @@ async function matchBatchPrice(row: any) {
     if (sequence !== row.batchSequence) return
     const price = result?.data || result
     if (price?.priceId && price.currency === (linesOwner.value?.currency || 'CNY')) {
-      row.batchPrice = Number(price.untaxedUnitPrice ?? price.unitPrice)
+      row.batchPrice = Number(price.unitPrice)
       row.batchQuotedPrice = row.batchPrice
       row.batchTaxRate = Number(price.taxRate || 0) / 100
       row.batchPriceId = price.priceId; row.batchSource = 'QUOTE'
@@ -487,7 +487,7 @@ async function saveSalesBatch() {
   if (salesBatchSelection.value.some(m => m.batchLoading || !(Number(m.batchQty) > 0) || m.batchPrice == null || Number(m.batchPrice) < 0)) { ElMessage.warning('请等待报价匹配并为每项填写数量和销售单价'); return }
   salesBatchSaving.value = true
   try {
-    await salOrderApi.addLines(salesBatchSelection.value.map(m => ({ soId: linesOwner.value!.soId, materialId: m.materialId, orderQty: Number(m.batchQty), unitPrice: Number(m.batchPrice), priceSource: m.batchSource, customerPriceId: m.batchPriceId, requiredDate: linesOwner.value!.deliveryDate } as any)))
+    await salOrderApi.addLines(salesBatchSelection.value.map(m => ({ soId: linesOwner.value!.soId, materialId: m.materialId, orderQty: Number(m.batchQty), taxInclusiveUnitPrice: Number(m.batchPrice), priceSource: m.batchSource, customerPriceId: m.batchPriceId, requiredDate: linesOwner.value!.deliveryDate } as any)))
     salesBatchDialog.value = false; ElMessage.success('销售明细已新增'); await onViewLines(linesOwner.value)
   } catch (e: any) { ElMessage.error(e?.message || '批量新增失败') }
   finally { salesBatchSaving.value = false }
@@ -748,18 +748,19 @@ function resetLineForm() {
 }
 function openLineDialog(row?: SalSalesOrderLine) {
   if (!linesOwner.value?.soId) { ElMessage.warning('缺少主单ID'); return }
-  if (row) { Object.assign(lineForm, { ...row }); lineEditingId.value = (row.lineId as number) ?? null }
-  else resetLineForm()
+  if (row) { Object.assign(lineForm, { ...row }); lineForm.taxInclusiveUnitPrice = row.taxInclusiveUnitPrice ?? Number((Number(row.unitPrice || 0) * (1 + Number(row.taxRate || 0))).toFixed(6)); lineEditingId.value = (row.lineId as number) ?? null }
+  else { resetLineForm(); lineForm.taxRate = Number(linesOwner.value?.taxRate || 0); lineForm.taxInclusiveUnitPrice = 0 }
   lineDialog.value = true
 }
 function recalcLineAmount() {
   const q = Number(lineForm.orderQty ?? 0)
-  const p = Number(lineForm.unitPrice ?? 0)
+  const p = Number(lineForm.taxInclusiveUnitPrice ?? 0)
   const d = Number(lineForm.discountRate ?? 0)
   const tr = Number(lineForm.taxRate ?? 0)
-  const line = q * p * (1 - d)
-  lineForm.taxAmount = Number((line * tr).toFixed(2))
-  lineForm.lineAmount = Number((line + Number(lineForm.taxAmount)).toFixed(2))
+  const gross = Number((q * p * (1 - d)).toFixed(2))
+  lineForm.unitPrice = Number((p / (1 + tr)).toFixed(6))
+  lineForm.lineAmount = gross
+  lineForm.taxAmount = Number((gross - gross / (1 + tr)).toFixed(2))
 }
 // SO下单带价: 数量变化重算 + 按客户+物料+数量匹配生效客户价(阶梯/is_default优先)
 function onQtyChange() {
@@ -787,6 +788,7 @@ async function onLineMatchPrice() {
     if (p && p.priceId && p.currency === (linesOwner.value?.currency || 'CNY')) {
       // 报价含税单价 → 订单行未税单价
       lineForm.unitPrice = Number(p.untaxedUnitPrice ?? p.unitPrice)
+      lineForm.taxInclusiveUnitPrice = Number(p.unitPrice)
       lineForm.taxRate = Number(p.taxRate || 0) / 100
       if (p.materialCode) lineForm.materialCode = p.materialCode
       if (p.materialName) lineForm.materialName = p.materialName

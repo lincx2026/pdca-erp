@@ -65,12 +65,19 @@ public class SalSalesOrderServiceImpl implements ISalSalesOrderService {
                 var quote = customerPrices.getObject().matchPrice(copy.getCustomerId(), line.getMaterialId(), line.getOrderQty(), copy.getSoDate());
                 if (quote == null || !Objects.equals(quote.getCurrency(), copy.getCurrency())) throw new ServiceException("物料 " + line.getMaterialCode() + " 没有适用的客户报价，无法重新匹配");
                 line.setUnitPrice(quote.getUntaxedUnitPrice() == null ? quote.getUnitPrice() : quote.getUntaxedUnitPrice());
+                line.setTaxInclusiveUnitPrice(quote.getUnitPrice());
                 line.setTaxRate(quote.getTaxRate() == null ? BigDecimal.ZERO : quote.getTaxRate().divide(new BigDecimal("100")));
                 line.setPriceSource("QUOTE"); line.setCustomerPriceId(quote.getPriceId());
             }
             BigDecimal base = line.getOrderQty().multiply(line.getUnitPrice()).multiply(BigDecimal.ONE.subtract(line.getDiscountRate() == null ? BigDecimal.ZERO : line.getDiscountRate()));
-            BigDecimal lineTax = base.multiply(line.getTaxRate() == null ? BigDecimal.ZERO : line.getTaxRate()).setScale(2, java.math.RoundingMode.HALF_UP);
-            line.setTaxAmount(lineTax); line.setLineAmount(base.add(lineTax).setScale(2, java.math.RoundingMode.HALF_UP));
+            BigDecimal lineTax;
+            if (line.getTaxInclusiveUnitPrice() != null) {
+                SalesTaxAmounts.calculate(line);
+                lineTax = line.getTaxAmount();
+            } else {
+                lineTax = base.multiply(line.getTaxRate() == null ? BigDecimal.ZERO : line.getTaxRate()).setScale(2, java.math.RoundingMode.HALF_UP);
+                line.setTaxAmount(lineTax); line.setLineAmount(base.add(lineTax).setScale(2, java.math.RoundingMode.HALF_UP));
+            }
             untaxed = untaxed.add(line.getOrderQty().multiply(line.getUnitPrice())); tax = tax.add(lineTax); total = total.add(line.getLineAmount());
             lineMapper.insert(line);
         }

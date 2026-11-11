@@ -416,9 +416,10 @@ public class SalCustomerPriceServiceImpl implements ISalCustomerPriceService {
             l.setShippedQty(BigDecimal.ZERO);
             l.setReturnedQty(BigDecimal.ZERO);
             l.setUnitPrice(untaxedUnitPrice);
-            l.setTaxRate(taxRate);
+            l.setTaxInclusiveUnitPrice(taxInclPrice);
+            l.setTaxRate(taxRate.divide(new BigDecimal("100")));
             l.setTaxAmount(taxAmt);
-            l.setLineAmount(lineAmt);
+            l.setLineAmount(lineAmt.add(taxAmt));
             l.setRequiredDate(reqDateMap.getOrDefault(p.getPriceId(), commonDelivery));
             l.setWarehouseId(warehouseId);
             newLines.add(l);

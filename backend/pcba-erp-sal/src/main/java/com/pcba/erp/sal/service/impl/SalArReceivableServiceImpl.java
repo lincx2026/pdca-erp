@@ -237,18 +237,27 @@ public class SalArReceivableServiceImpl implements ISalArReceivableService {
             if (qty.signum() <= 0) continue;
             Long soLineId = l.get("so_line_id") == null ? null : ((Number) l.get("so_line_id")).longValue();
             BigDecimal unitPrice = BigDecimal.ZERO, taxRate = soTaxRate;
+            BigDecimal inclusivePrice = null, discount = BigDecimal.ZERO;
             if (soLineId != null) {
                 try {
                     Map<String, Object> sol = jdbcTemplate.queryForMap(
-                            "SELECT unit_price, tax_rate FROM sal_sales_order_line WHERE line_id=?", soLineId);
+                            "SELECT unit_price, tax_rate, tax_inclusive_unit_price, discount_rate FROM sal_sales_order_line WHERE line_id=?", soLineId);
                     unitPrice = toDec(sol.get("unit_price"));
                     BigDecimal tr = toDec(sol.get("tax_rate"));
-                    if (tr.signum() != 0) taxRate = tr;
+                    if (sol.get("tax_rate") != null) taxRate = tr;
+                    if (sol.get("tax_inclusive_unit_price") != null) inclusivePrice = toDec(sol.get("tax_inclusive_unit_price"));
+                    discount = toDec(sol.get("discount_rate"));
                 } catch (Exception ignore) { }
             }
             BigDecimal undisc = qty.multiply(unitPrice);
             BigDecimal tax = undisc.multiply(taxRate);
             BigDecimal lineAmt = undisc.add(tax);
+            if (inclusivePrice != null) {
+                var amountLine = new com.pcba.erp.sal.entity.SalSalesOrderLine();
+                amountLine.setOrderQty(qty); amountLine.setTaxInclusiveUnitPrice(inclusivePrice); amountLine.setTaxRate(taxRate); amountLine.setDiscountRate(discount);
+                SalesTaxAmounts.calculate(amountLine);
+                lineAmt = amountLine.getLineAmount(); tax = amountLine.getTaxAmount(); undisc = lineAmt.subtract(tax);
+            }
 
             SalArReceivableLine rl = new SalArReceivableLine();
             rl.setLineNo(lineNo++);
@@ -425,20 +434,29 @@ public class SalArReceivableServiceImpl implements ISalArReceivableService {
             Long soLineId = l.get("so_line_id") == null ? null : ((Number) l.get("so_line_id")).longValue();
             BigDecimal unitPrice = toDec(l.get("unit_price"));
             BigDecimal taxRate = soTaxRate;
+            BigDecimal inclusivePrice = null, discount = BigDecimal.ZERO;
             // 优先 SO 行取价（红字应与原蓝字同价）
             if (soLineId != null) {
                 try {
                     Map<String, Object> sol = jdbcTemplate.queryForMap(
-                            "SELECT unit_price, tax_rate FROM sal_sales_order_line WHERE line_id=?", soLineId);
+                            "SELECT unit_price, tax_rate, tax_inclusive_unit_price, discount_rate FROM sal_sales_order_line WHERE line_id=?", soLineId);
                     BigDecimal up = toDec(sol.get("unit_price"));
                     if (up.signum() != 0) unitPrice = up;
                     BigDecimal tr = toDec(sol.get("tax_rate"));
-                    if (tr.signum() != 0) taxRate = tr;
+                    if (sol.get("tax_rate") != null) taxRate = tr;
+                    if (sol.get("tax_inclusive_unit_price") != null) inclusivePrice = toDec(sol.get("tax_inclusive_unit_price"));
+                    discount = toDec(sol.get("discount_rate"));
                 } catch (Exception ignore) { }
             }
             BigDecimal undisc = qty.multiply(unitPrice);
             BigDecimal tax = undisc.multiply(taxRate);
             BigDecimal lineAmt = undisc.add(tax);
+            if (inclusivePrice != null) {
+                var amountLine = new com.pcba.erp.sal.entity.SalSalesOrderLine();
+                amountLine.setOrderQty(qty); amountLine.setTaxInclusiveUnitPrice(inclusivePrice); amountLine.setTaxRate(taxRate); amountLine.setDiscountRate(discount);
+                SalesTaxAmounts.calculate(amountLine);
+                lineAmt = amountLine.getLineAmount(); tax = amountLine.getTaxAmount(); undisc = lineAmt.subtract(tax);
+            }
 
             SalArReceivableLine rl = new SalArReceivableLine();
             rl.setLineNo(lineNo++);

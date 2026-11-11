@@ -60,6 +60,25 @@ class OrderWorkflowIntegrationTest {
     @Autowired IWmsInventoryService inventory;
 
     @Test @Transactional
+    void inclusiveSalesPriceProducesCorrectOrderTotal() {
+        Long material = jdbc.queryForObject("INSERT INTO pdm_material(material_code,material_name,category_id) VALUES ('TEST-GROSS-PRICE','material',1) RETURNING material_id",Long.class);
+        Long so = jdbc.queryForObject("INSERT INTO sal_sales_order(so_no,customer_id,so_date,status,tax_rate,currency) VALUES ('TEST-GROSS-PRICE',1,CURRENT_DATE,0,0.13,'CNY') RETURNING so_id",Long.class);
+        var line = new com.pcba.erp.sal.entity.SalSalesOrderLine(); line.setSoId(so); line.setMaterialId(material); line.setOrderQty(new BigDecimal("500")); line.setTaxInclusiveUnitPrice(new BigDecimal("33"));
+        Long lineId = salesLines.saveBatch(List.of(line)).get(0);
+        var saved = salesLines.getDetail(lineId);
+        assertEquals(0,new BigDecimal("16500.00").compareTo(saved.getLineAmount()));
+        assertEquals(0,new BigDecimal("1898.23").compareTo(saved.getTaxAmount()));
+        assertEquals(0,new BigDecimal("16500.00").compareTo(sales.getDetail(so).getTotalAmount()));
+        jdbc.update("UPDATE sal_sales_order SET status=2,warehouse_id=90001 WHERE so_id=?",so); sql.clearCache();
+        Long out = sales.generateStockOut(so);
+        inventory.increaseInventory(90001L,material,"TAX-A",new BigDecimal("200"),"PCS");
+        inventory.increaseInventory(90001L,material,"TAX-B",new BigDecimal("300"),"PCS");
+        jdbc.update("UPDATE wms_stock_out SET status=2 WHERE stock_out_id=?",out); sql.clearCache();
+        stockOut.confirmStockOut(out);
+        assertEquals(0,new BigDecimal("16500.00").compareTo(jdbc.queryForObject("SELECT SUM(line_amount) FROM sal_ar_receivable_line WHERE stock_out_id=?",BigDecimal.class,out)));
+    }
+
+    @Test @Transactional
     void purchasePrintLoadsAllLinesAndRecordsOnlyConfirmedPrint() {
         Long po = jdbc.queryForObject("INSERT INTO scm_purchase_order(po_no,supplier_id,po_date) VALUES ('TEST-PUR-PRINT',1,CURRENT_DATE) RETURNING po_id", Long.class);
         jdbc.update("INSERT INTO scm_purchase_order_line(po_id,line_no,material_id,order_qty) SELECT ?,n,n,1 FROM generate_series(1,201) n", po);

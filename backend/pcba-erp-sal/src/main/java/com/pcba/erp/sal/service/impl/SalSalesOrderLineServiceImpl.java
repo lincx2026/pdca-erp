@@ -40,7 +40,7 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
         SalSalesOrder order = orderService.getDetail(soId);
         if (!Integer.valueOf(0).equals(order.getStatus()) && !Integer.valueOf(7).equals(order.getStatus())) throw new ServiceException("仅草稿或驳回订单可以新增明细");
         for (SalSalesOrderLine line : lines) {
-            if (line.getMaterialId() == null || materialService.getById(line.getMaterialId()) == null || line.getOrderQty() == null || line.getOrderQty().signum() <= 0 || line.getUnitPrice() == null || line.getUnitPrice().signum() < 0)
+            if (line.getMaterialId() == null || materialService.getById(line.getMaterialId()) == null || line.getOrderQty() == null || line.getOrderQty().signum() <= 0 || (line.getTaxInclusiveUnitPrice() == null && (line.getUnitPrice() == null || line.getUnitPrice().signum() < 0)))
                 throw new ServiceException("请选择有效物料并填写数量和单价");
             if ("QUOTE".equals(line.getPriceSource())) {
                 if (line.getCustomerPriceId() == null || jdbc.queryForList("SELECT price_id FROM sal_customer_price WHERE price_id=? FOR SHARE", Long.class, line.getCustomerPriceId()).isEmpty())
@@ -48,7 +48,7 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
                 var quote = customerPrices.matchPrice(order.getCustomerId(), line.getMaterialId(), line.getOrderQty(), order.getSoDate());
                 if (quote == null || !java.util.Objects.equals(quote.getPriceId(), line.getCustomerPriceId()) ||
                         !java.util.Objects.equals(quote.getCurrency(), order.getCurrency() == null ? "CNY" : order.getCurrency()) ||
-                        (quote.getUntaxedUnitPrice() == null ? quote.getUnitPrice() : quote.getUntaxedUnitPrice()).compareTo(line.getUnitPrice()) != 0)
+                        (line.getTaxInclusiveUnitPrice() != null ? quote.getUnitPrice().compareTo(line.getTaxInclusiveUnitPrice()) != 0 : (quote.getUntaxedUnitPrice() == null ? quote.getUnitPrice() : quote.getUntaxedUnitPrice()).compareTo(line.getUnitPrice()) != 0))
                     throw new ServiceException("客户报价已变化，请重新匹配价格");
                 line.setTaxRate(quote.getTaxRate() == null ? BigDecimal.ZERO : quote.getTaxRate().divide(new BigDecimal("100")));
             } else { line.setPriceSource("MANUAL"); line.setCustomerPriceId(null); line.setTaxRate(order.getTaxRate()); }
@@ -110,6 +110,7 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
             entity.setLineAmount(undisc.add(entity.getTaxAmount()));
         }
 
+        if (entity.getTaxInclusiveUnitPrice() != null) SalesTaxAmounts.calculate(entity);
         mapper.insert(entity);
         recomputeHeader(entity.getSoId());
         return entity.getLineId();
@@ -134,6 +135,11 @@ public class SalSalesOrderLineServiceImpl implements ISalSalesOrderLineService {
             BigDecimal undisc = q.multiply(p).multiply(BigDecimal.ONE.subtract(d));
             BigDecimal tax = entity.getTaxAmount() != null ? entity.getTaxAmount() : undisc.multiply(r);
             entity.setLineAmount(undisc.add(tax));
+        }
+        if (entity.getTaxInclusiveUnitPrice() != null || old.getTaxInclusiveUnitPrice() != null) {
+            if (entity.getTaxInclusiveUnitPrice() == null) entity.setTaxInclusiveUnitPrice(old.getTaxInclusiveUnitPrice());
+            entity.setOrderQty(q); entity.setTaxRate(r); entity.setDiscountRate(d);
+            SalesTaxAmounts.calculate(entity);
         }
         boolean ok = mapper.updateById(entity) > 0;
         if (ok) recomputeHeader(old.getSoId());

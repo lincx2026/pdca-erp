@@ -11,5 +11,17 @@ test('single sales line uses the unwrapped customer quote with decimal tax rate'
   const context = { lineForm, linesOwner: { value: { customerId: 10 } }, salPriceApi: { match: async () => ({ priceId: 1, unitPrice: 113, untaxedUnitPrice: 100, taxRate: 13, currency: 'CNY' }) }, ElMessage: { success() {}, info() {} }, recalcLineAmount() {}, Number }
   await runInNewContext(`(async () => {${match[1].replaceAll(' as any', '')}\n})()`, context)
   assert.equal(lineForm.unitPrice, 100)
+  assert.equal(lineForm.taxInclusiveUnitPrice, 113)
   assert.equal(lineForm.taxRate, 0.13)
+})
+
+
+test('manual inclusive unit price calculates gross and tax from the same price', () => {
+  const source = readFileSync(new URL('../src/views/sal/order/index.vue', import.meta.url), 'utf8')
+  const match = source.match(/function recalcLineAmount\(\) \{([\s\S]*?)\n\}/)
+  assert.ok(match)
+  const lineForm = { orderQty: 500, taxInclusiveUnitPrice: 33, discountRate: 0, taxRate: 0.13 }
+  runInNewContext(match[1], { lineForm, Number })
+  assert.equal(lineForm.lineAmount, 16500)
+  assert.equal(lineForm.taxAmount, 1898.23)
 })

@@ -29,6 +29,8 @@ public class SalSalesOrderLine implements Serializable {
     private BigDecimal shippedQty;
     private BigDecimal returnedQty;
     private BigDecimal unitPrice;
+    /** 新录入的含税单价；历史单据为空，unitPrice 仍为未税价。 */
+    private BigDecimal taxInclusiveUnitPrice;
     private String priceSource;
     private Long customerPriceId;
     private BigDecimal taxRate;

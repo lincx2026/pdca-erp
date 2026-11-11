@@ -1451,6 +1451,7 @@ export interface SalSalesOrder {
 
 /** 销售订单行 */
 export interface SalSalesOrderLine {
+  taxInclusiveUnitPrice?: number
   lineId?: number
   soId: number
   lineNo?: number
