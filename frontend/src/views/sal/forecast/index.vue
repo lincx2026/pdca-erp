@@ -75,7 +75,7 @@
         </template>
       </el-table-column>
     </el-table>
-    <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :page-size="query.pageSize" :current-page="query.pageNum" :page-sizes="[10,20,50,100]" @current-change="(p)=>{query.pageNum=p;loadList()}" @size-change="(s)=>{query.pageSize=s;loadList(1)}" style="margin-top:12px;justify-content:flex-end;display:flex" />
+    <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :page-size="query.pageSize" :current-page="query.pageNum" :page-sizes="[10,20,50,100]" @current-change="(p: number)=>{query.pageNum=p;loadList()}" @size-change="(s: number)=>{query.pageSize=s;loadList(1)}" style="margin-top:12px;justify-content:flex-end;display:flex" />
 
     <!-- 生成版本对话框 -->
     <el-dialog v-model="genDialog.visible" title="生成新版本" width="480px">

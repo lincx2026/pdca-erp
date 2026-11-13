@@ -152,7 +152,7 @@
         <el-descriptions-item label="需求总量">{{ detailDlg.data?.totalRequiredQty || 0 }}</el-descriptions-item>
         <el-descriptions-item label="可用库存">{{ detailDlg.data?.totalAvailableQty || 0 }}</el-descriptions-item>
         <el-descriptions-item label="缺口总量">
-          <span :style="{ color: (detailDlg.data?.totalShortageQty > 0) ? '#f56c6c' : '', fontWeight: '600' }">
+          <span :style="{ color: ((detailDlg.data?.totalShortageQty ?? 0) > 0) ? '#f56c6c' : '', fontWeight: '600' }">
             {{ detailDlg.data?.totalShortageQty || 0 }}
           </span>
         </el-descriptions-item>

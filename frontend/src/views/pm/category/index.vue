@@ -71,7 +71,8 @@
 import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { projectCategoryApi, type PmProjectCategory } from '@/api'
+import { projectCategoryApi } from '@/api'
+import type { PmProjectCategory } from '@/types/models'
 
 const tree = ref<PmProjectCategory[]>([])
 const parentOptions = ref<PmProjectCategory[]>([])

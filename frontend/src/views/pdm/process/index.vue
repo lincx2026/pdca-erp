@@ -190,7 +190,7 @@
             <template #default="{ row }">
               <el-input-number v-model="row._yield" size="small" :min="0" :max="100" :precision="2"
                                controls-position="right" style="width:90px"
-                               @change="v => row.targetYieldRate = v / 100" />
+                               @change="(v: number) => row.targetYieldRate = v / 100" />
             </template>
           </el-table-column>
           <el-table-column label="关键/必检" width="140" align="center">
@@ -230,7 +230,7 @@
             <el-tag v-if="detail.route.isDefault === 1" type="warning" style="margin-left:6px">★默认</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="总工时">{{ detail.route.totalCycleMin }} min</el-descriptions-item>
-          <el-descriptions-item label="总良率">{{ (detail.route.overallYield * 100).toFixed(4) }}%</el-descriptions-item>
+          <el-descriptions-item label="总良率">{{ ((detail.route.overallYield ?? 0) * 100).toFixed(4) }}%</el-descriptions-item>
           <el-descriptions-item label="备注" :span="2">{{ detail.route.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
 
@@ -248,7 +248,7 @@
               <div class="step-meta">
                 工时 <b>{{ s.standardCycleMin }} min</b>
                 · 人数 <b>{{ s.standardLaborQty }}</b>
-                · 良率 <b>{{ (s.targetYieldRate * 100).toFixed(2) }}%</b>
+                · 良率 <b>{{ ((s.targetYieldRate ?? 0) * 100).toFixed(2) }}%</b>
               </div>
               <div v-if="s.remark" class="muted" style="font-size:12px">{{ s.remark }}</div>
             </div>
@@ -270,7 +270,7 @@ const STEP_CODES = ['SMT-PRINT', 'SMT-PLACE', 'SMT-REFLOW', 'AOI', 'XRAY', 'ICT'
   'DIP-WAVE', 'HAND-WELD', 'ASSEMBLE', 'AGING', 'PACKAGE', 'CALIBRATE', 'TEST']
 
 // ========== 列表 ==========
-const q = reactive({ pageNum: 1, pageSize: 20, routeCode: '', routeName: '', productCode: '', productId: null as number | null, status: null as number | null })
+const q = reactive({ pageNum: 1, pageSize: 20, routeCode: '', routeName: '', productCode: '', productId: undefined as number | undefined, status: undefined as number | undefined })
 const list = reactive<{ loading: boolean; data: { rows: PdmProcessRoute[]; total: number } }>({ loading: false, data: { rows: [], total: 0 } })
 const stepCount: Record<number, number> = ref({}).value
 const productOptions = ref<PdmMaterial[]>([])
@@ -290,7 +290,7 @@ async function loadList() {
   } catch (e: any) { ElMessage.error(e?.message || '加载失败') }
   finally { list.loading = false }
 }
-function resetQ() { Object.assign(q, { routeCode: '', routeName: '', productCode: '', productId: null, status: null, pageNum: 1 }); loadList() }
+function resetQ() { Object.assign(q, { routeCode: '', routeName: '', productCode: '', productId: undefined, status: undefined, pageNum: 1 }); loadList() }
 
 // ========== 新增/编辑 ==========
 const editDlg = reactive<{ show: boolean; isNew: boolean; saving: boolean; route: PdmProcessRoute }>({
@@ -356,12 +356,12 @@ function sortSteps() { editDlg.route.steps?.sort((a, b) => (a.stepNo || 0) - (b.
 // 实时汇总
 const editTotalMin = computed(() => {
   const steps = editDlg.route.steps || []
-  return steps.reduce((a, b) => a + (+b.standardCycleMin || 0), 0).toFixed(2)
+  return steps.reduce((a, b) => a + (Number(b.standardCycleMin) || 0), 0).toFixed(2)
 })
 const editYieldPct = computed(() => {
   const steps = editDlg.route.steps || []
   if (!steps.length) return '100.0000'
-  const y = steps.reduce((a, b) => a * (+b.targetYieldRate ?? 1), 1)
+  const y = steps.reduce((a, b) => a * (b.targetYieldRate ?? 1), 1)
   return (y * 100).toFixed(4)
 })
 

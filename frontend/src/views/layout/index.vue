@@ -38,7 +38,7 @@
         </div>
         <div class="right flex items-center gap-16">
           <el-tooltip content="接口文档">
-            <el-button link target="_blank" @click="$router.resolve && window.open('/doc.html','_blank')">
+            <el-button link target="_blank" @click="openDoc">
               <el-icon><Reading /></el-icon> 文档
             </el-button>
           </el-tooltip>
@@ -111,6 +111,11 @@ function onCommand(cmd: string) {
   } else if (cmd === 'profile') {
     router.push('/profile')
   }
+}
+
+/** 打开接口文档 */
+function openDoc() {
+  window.open('/doc.html', '_blank')
 }
 
 /** Element Plus el-menu @select: 手动用 index (已在 MenuTree 里算好完整路径) 做跳转 */

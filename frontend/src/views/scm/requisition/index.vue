@@ -44,7 +44,7 @@
               highlight-current-row
               @selection-change="onSelectionChange"
               @current-change="(r:any) => curRow = r || null">
-      <el-table-column type="selection" width="44" :selectable="(row) => Number(row.status) === 2" />
+      <el-table-column type="selection" width="44" :selectable="(row: any) => Number(row.status) === 2" />
       <el-table-column prop="requisitionId" label="ID" width="70" align="right" />
       <el-table-column prop="requisitionNo" label="请购单号" width="160" />
       <el-table-column label="状态" width="100">

@@ -154,7 +154,7 @@ const TABS: { key: number; label: string }[] = [
 const activeTab = ref(0)
 const dropdownVisible = ref(false)
 const currentTabLabel = computed(() => TABS.find(t => t.key === activeTab.value)?.label || '')
-const tabUnread = computed(() => ({
+const tabUnread = computed<Record<number, number>>(() => ({
   0: countResp.total, 1: countResp.type1, 2: countResp.type2,
   3: countResp.type3, 4: countResp.type4,
 }))

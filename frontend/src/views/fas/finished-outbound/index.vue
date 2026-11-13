@@ -156,7 +156,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, type FormInstance, type FormRules } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
+import type { FormInstance, FormRules } from 'element-plus'
 import { Search, Refresh, Plus, Clock, EditPen, CircleCheckFilled, Promotion } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { pmFasApi, materialApi } from '@/api/index'
@@ -170,7 +171,7 @@ const q = reactive({
 const list = reactive({ loading: false, data: { rows: [] as FasProductStock[], total: 0 } })
 const stat = reactive({ pending: 0, draft: 0, done: 0, qty: 0 })
 
-const statusTag = (s: number | null) => {
+const statusTag = (s?: number | null) => {
   const map: Record<number, { text: string; type: any }> = {
     0: { text: '草稿', type: 'info' },
     1: { text: '待审核', type: 'warning' },
@@ -180,7 +181,7 @@ const statusTag = (s: number | null) => {
   }
   return map[s ?? -1] || { text: '-', type: 'info' }
 }
-const sourceTypeLabel = (s: string | null) => {
+const sourceTypeLabel = (s?: string | null) => {
   const map: Record<string, string> = { SALES_OUT: '销售出库', SALES_RETURN: '销售退货', SAMPLE: '样品出库', TRANSFER: '调拨出库', OTHER: '其他出库' }
   return map[s || ''] || (s || '-')
 }

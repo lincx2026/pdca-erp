@@ -152,7 +152,7 @@ const list = reactive({ loading: false, data: { rows: [] as FasProductStock[], t
 const stat = reactive({ pending: 0, draft: 0, done: 0, qty: 0 })
 const banner = reactive({ show: false, orderNo: '', batchNo: '' })
 
-const statusTag = (s: number | null) => {
+const statusTag = (s?: number | null) => {
   const map: Record<number, { text: string; type: any }> = {
     0: { text: '草稿', type: 'info' },
     1: { text: '待审核', type: 'warning' },
@@ -162,7 +162,7 @@ const statusTag = (s: number | null) => {
   }
   return map[s ?? -1] || { text: '-', type: 'info' }
 }
-const sourceTypeLabel = (s: string | null) => {
+const sourceTypeLabel = (s?: string | null) => {
   const map: Record<string, string> = { ASSEMBLY_IN: '组装完工入库', SALES_RETURN: '销售退货入库', TRANSFER: '调拨入库', OTHER: '其他入库' }
   return map[s || ''] || (s || '-')
 }

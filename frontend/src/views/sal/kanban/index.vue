@@ -157,6 +157,10 @@ function fmt(v: any) {
   if (v == null || v === '') return '-'
   return '¥' + Number(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
+function pct(v: any) {
+  if (v == null || v === '') return '-'
+  return (Number(v) * 100).toFixed(1) + '%'
+}
 
 const STATUS_LABEL: Record<number, { l: string; t?: string }> = {
   0: { l: '待对账', t: 'info' }, 1: { l: '对账中', t: 'warning' }, 2: { l: '对账完成', t: 'primary' },

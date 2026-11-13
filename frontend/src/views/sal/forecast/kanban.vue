@@ -138,7 +138,7 @@ function renderTrend(rows: any[]) {
   const acQty = rows.map(r => Number(r.actualQty || 0))
   const fcAmt = rows.map(r => Number(r.forecastAmt || 0))
   const acAmt = rows.map(r => Number(r.actualAmt || 0))
-  trendChart.setOption({
+  trendChart?.setOption({
     tooltip: { trigger: 'axis' },
     legend: { data: ['预测量', '实际量', '预测金额', '实际金额'], top: 0 },
     grid: { left: 50, right: 50, top: 40, bottom: 30 },
@@ -159,7 +159,7 @@ function renderTrend(rows: any[]) {
 function renderTopCustomer(rows: any[]) {
   if (!topCustomerRef.value) return
   topCustomerChart = ensureChart(topCustomerRef.value, topCustomerChart)
-  topCustomerChart.setOption({
+  topCustomerChart?.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: 100, right: 30, top: 30, bottom: 30 },
     xAxis: { type: 'value', name: '预测金额(¥)' },
@@ -175,7 +175,7 @@ function renderTopCustomer(rows: any[]) {
 function renderTopMaterial(rows: any[]) {
   if (!topMaterialRef.value) return
   topMaterialChart = ensureChart(topMaterialRef.value, topMaterialChart)
-  topMaterialChart.setOption({
+  topMaterialChart?.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: 100, right: 30, top: 30, bottom: 30 },
     xAxis: { type: 'value', name: '预测数量' },

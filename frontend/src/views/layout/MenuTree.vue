@@ -148,7 +148,6 @@ const IconAlias: Record<string, string> = {
   'delete': 'Delete',
   'edit': 'Edit',
   'view': 'View',
-  'warning': 'Warning',
   'star': 'Star',
   'heart': 'Heart',
   // DB 中遗留的 kebab/非标准名 → Element Plus 实际组件名兜底
@@ -159,18 +158,9 @@ const IconAlias: Record<string, string> = {
   'tree': 'OfficeBuilding',   // 部门管理/物料分类 (Tree 不存在, 用楼)
   'link': 'Link',              // 客户料号 (链接)
   'warning': 'WarningFilled', // 质量不良 (实心警告)
-  'money': 'Money',
   'histogram': 'Histogram',
-  'data-analysis': 'DataAnalysis',
   'document-checked': 'DocumentChecked',
   'price-tag': 'PriceTag',
-  'data-line': 'DataLine',
-  'trend-charts': 'TrendCharts',
-  'refresh-left': 'RefreshLeft',
-  'edit-pen': 'EditPen',
-  'shopping-cart': 'ShoppingCart',
-  'shopping-bag': 'ShoppingBag',
-  'user-filled': 'UserFilled',
 }
 
 /** kebab-case / snake_case → PascalCase */

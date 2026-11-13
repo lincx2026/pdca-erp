@@ -231,6 +231,10 @@ export interface PdmBom {
   // 非DB
   lines?: PdmBomLine[]
   categoryId?: number
+  /** 销售BOM特有: 客户ID */
+  customerId?: number
+  /** 销售BOM特有: 齐套机型 */
+  kitModel?: string
 }
 export interface PdmBomLine {
   lineId?: number
@@ -637,6 +641,7 @@ export interface PmProject {
   projectId?: number
   projectCode?: string
   projectName: string
+  categoryId?: number
   customerName?: string
   productName?: string
   manager?: string
@@ -814,6 +819,18 @@ export interface PmmJig {
   model?: string
   /** 板材/材质(AL5052/电木/SUS304/FR4/Durostone 等) */
   material?: string
+  /** 规格型号 */
+  specification?: string
+  /** 板材厚度(mm) */
+  thicknessMm?: number
+  /** 制作方/厂家 */
+  maker?: string
+  /** 供应商/外协厂商ID */
+  vendorId?: number
+  /** 供应商/外协厂商名称 */
+  vendorName?: string
+  /** 图片/附件 URL */
+  attachmentUrl?: string
   /** 网板厚度/工艺参数(例: 100μm 电铸 / 阶梯0.12) */
   techSpec?: string
   /** 入库/到货 日期 */
@@ -1025,6 +1042,8 @@ export interface ScmDeliveryNote {
   deliveryNo: string
   poId?: number
   poNo?: string
+  /** 采购归属 ELEC/PACK/ACC/SELF */
+  bizCategory?: string
   supplierId: number
   supplierName?: string
   waybillNo?: string
@@ -2056,6 +2075,23 @@ export interface FasProductStock {
   inTime?: string
   createTime?: string
   remark?: string
+  /** 单据类型 INBOUND=入库单 OUTBOUND=出库单 */
+  docType?: string
+  /** 关联单据号(WFI/WFO前缀) */
+  docNo?: string
+  /** 单据状态 0草稿 1待审核 2已审核 3已完成 4已驳回 */
+  docStatus?: number
+  /** 台账业务类型 FG=成品 ACC=外购配件 */
+  stockType?: string
+  /** 单据动作数量(台, 入=正 出=负) */
+  flowQty?: number
+  /** 业务类型 ASSEMBLY_IN/SALES_OUT/SALES_RETURN/SAMPLE/TRANSFER/PURCHASE_IN/KIT_OUT/OTHER */
+  sourceType?: string
+  /** 来源采购到货单号 */
+  purchaseNo?: string
+  auditBy?: string
+  auditTime?: string
+  rejectReason?: string
 }
 
 // ==================== 公司设置 ====================

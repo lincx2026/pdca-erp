@@ -184,9 +184,9 @@ async function loadList(page?: number) {
   } finally { loading.value = false }
 }
 function resetQuery() {
-  (query as any).supplierCode = ''
-  (query as any).supplierName = ''
-  (query as any).contact = ''
+  (query as any).supplierCode = '';
+  (query as any).supplierName = '';
+  (query as any).contact = '';
   (query as any).status = undefined
   loadList(1)
 }

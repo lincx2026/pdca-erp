@@ -70,7 +70,7 @@
                   :model-value="row.status===1"
                   inline-prompt
                   active-text="启用" inactive-text="停用"
-                  @change="(v)=>changeStatus(row, v?1:0)" />
+                  @change="(v: string | number | boolean)=>changeStatus(row, v?1:0)" />
                 <el-tag v-else type="success" size="small">超级管理员</el-tag>
               </template>
             </el-table-column>

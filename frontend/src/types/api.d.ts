@@ -14,9 +14,9 @@ export interface Page<T> {
 }
 
 /** 后端 TableDataInfo (SysUser/Material 用) */
-export interface TableDataInfo {
+export interface TableDataInfo<T = any> {
   total: number
-  rows: any[]
+  rows: T[]
   code: number
   msg: string
 }

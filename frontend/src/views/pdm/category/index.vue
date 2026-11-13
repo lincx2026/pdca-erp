@@ -194,7 +194,7 @@ async function openAdd(parent: PdmMaterialCategory | null) {
   dlg.isEdit = false
   dlg.parentId = parent ? parent.categoryId : null
   form.parentId = parent ? parent.categoryId : 0
-  parentOptions.value = await categoryApi.excludeTree(null) as any
+  parentOptions.value = await categoryApi.excludeTree(undefined) as any
   dlg.visible = true
 }
 
