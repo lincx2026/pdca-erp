@@ -40,7 +40,7 @@
               :span-method="objectSpanMethod"
               :cell-class-name="cellClassName"
               :row-class-name="rowClassName">
-      <el-table-column type="selection" width="44" :selectable="(row) => canSelect(row)" />
+      <el-table-column type="selection" width="44" :selectable="(row: any) => canSelect(row)" />
       <el-table-column label="物料信息" width="260">
         <template #default="{ row }">
           <div class="mat-cell">

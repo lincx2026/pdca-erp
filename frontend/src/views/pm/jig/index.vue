@@ -103,7 +103,7 @@
                       :percentage="Math.min(100, Math.round(((row.usedCount || 0) / row.lifeCount) * 100))"
                       :color="lifeColor(row)"
                       :stroke-width="12"
-                      :format="p => `${p}% (${row.usedCount || 0}/${row.lifeCount})`"
+                      :format="(p: number) => `${p}% (${row.usedCount || 0}/${row.lifeCount})`"
                     />
                   </el-tooltip>
                 </div>
@@ -560,7 +560,7 @@
               :percentage="Math.min(100, Math.round(((logDrawer.jig.usedCount || 0) / logDrawer.jig.lifeCount) * 100))"
               :color="lifeColor(logDrawer.jig as any)"
               :stroke-width="12"
-              :format="p => `${p}% (${logDrawer.jig.usedCount || 0}/${logDrawer.jig.lifeCount})`"
+              :format="(p: number) => `${p}% (${logDrawer.jig!.usedCount || 0}/${logDrawer.jig!.lifeCount})`"
             />
             <span v-else style="color:var(--el-text-color-secondary);font-size:12px">已使用 {{ logDrawer.jig.usedCount || 0 }} 次 (不限寿命)</span>
           </el-descriptions-item>
@@ -948,7 +948,7 @@ const submitAction = async () => {
     ElMessage.success(`${ACT_TITLE[actionDlg.action]} 执行成功, 状态/数量/寿命同步已刷新`)
     actionDlg.show = false
     await Promise.all([loadList(), loadOptions(), loadLogs()])
-    if (logDrawer.show) {
+    if (logDrawer.show && logDrawer.jig) {
       try { logDrawer.jig = await pmJigApi.get(logDrawer.jig.jigId!) } catch {}
       await loadDrawerRows()
     }

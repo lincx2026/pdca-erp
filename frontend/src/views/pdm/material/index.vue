@@ -62,7 +62,7 @@
               <el-select v-model="q.procureScope" placeholder="全部" clearable style="width: 150px">
                 <el-option v-for="s in PROCURE_SCOPES" :key="s.value" :label="s.label" :value="s.value">
                   <span style="display:inline-flex;align-items:center;gap:8px">
-                    <el-tag size="small" :type="s.tagType" effect="light">{{ s.labelShort || s.label.split(/采购|成品/)[0] || s.value }}</el-tag>
+                    <el-tag size="small" :type="s.tagType" effect="light">{{ s.labelShort }}</el-tag>
                     <span style="font-size:12px;color:#909399">{{ s.desc }}</span>
                   </span>
                 </el-option>
@@ -659,7 +659,7 @@ function procureScopeLabel(v?: string) {
 function inferProcureScope(categoryId?: number | string): ProcureScope {
   const cat = findCategoryById(categoryId)
   const nm = (cat?.categoryName || '').trim()
-  const scope = (cat?.materialScope || '').toUpperCase()
+  const scope = ((cat as PdmMaterialCategory & { materialScope?: string } | undefined)?.materialScope || '').toUpperCase()
   // PCBA 产品开发: 辅料/包材类→PACK, 其余→ELEC
   if (scope === 'PCBA' || SCOPE === 'elec') {
     if (/辅料|包材|彩盒|包装|说明书|外箱|泡沫|焊锡|胶|标签|条码|治具|测试架/.test(nm)) return 'PACK'
@@ -753,8 +753,8 @@ function resetQ() {
 const catTreeForDlg = ref<PdmMaterialCategory[]>([])
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
-const dlg = reactive<{ visible: boolean; isEdit: boolean; viewOnly: boolean; title: string; tab: string }>({
-  visible: false, isEdit: false, viewOnly: false, title: '', tab: 'base'
+const dlg = reactive<{ visible: boolean; isEdit: boolean; isAdd: boolean; viewOnly: boolean; title: string; tab: string }>({
+  visible: false, isEdit: false, isAdd: false, viewOnly: false, title: '', tab: 'base'
 })
 const form = reactive<Partial<PdmMaterial> & { procureScope?: ProcureScope | '' }>({
   categoryId: undefined,
@@ -906,6 +906,7 @@ async function loadAlternates(mainMaterialId: number) {
 async function openAdd() {
   resetForm()
   dlg.isEdit = false
+  dlg.isAdd = true
   dlg.viewOnly = false
   dlg.title = '新增物料'
   dlg.tab = 'base'
@@ -913,7 +914,7 @@ async function openAdd() {
     form.categoryId = q.categoryId
     await nextTick()
   }
-  catTreeForDlg.value = await categoryApi.excludeTree(null) as any
+  catTreeForDlg.value = await categoryApi.excludeTree(undefined) as any
   // 预加载供应商/物料下拉
   if (materialOptions.value.length === 0) loadMaterialOptions()
   dlg.visible = true
@@ -933,10 +934,11 @@ async function openEdit(row: PdmMaterial) {
   const detail = await materialApi.get(row.materialId) as any
   Object.assign(form, detail)
   dlg.isEdit = true
+  dlg.isAdd = false
   dlg.viewOnly = false
   dlg.title = '修改物料 - ' + detail.materialCode
   dlg.tab = 'base'
-  catTreeForDlg.value = await categoryApi.excludeTree(null) as any
+  catTreeForDlg.value = await categoryApi.excludeTree(undefined) as any
   // 预加载供应商/物料下拉
   if (materialOptions.value.length === 0) loadMaterialOptions()
   // W3.3: 异步加载供应商报价与替代料
@@ -953,10 +955,11 @@ async function openView(row: PdmMaterial) {
   const detail = await materialApi.get(row.materialId) as any
   Object.assign(form, detail)
   dlg.isEdit = false
+  dlg.isAdd = false
   dlg.viewOnly = true
   dlg.title = '物料详情 - ' + detail.materialCode
   dlg.tab = 'base'
-  catTreeForDlg.value = await categoryApi.excludeTree(null) as any
+  catTreeForDlg.value = await categoryApi.excludeTree(undefined) as any
   // 预加载供应商/物料下拉
   if (materialOptions.value.length === 0) loadMaterialOptions()
   // W3.3: 异步加载供应商报价与替代料

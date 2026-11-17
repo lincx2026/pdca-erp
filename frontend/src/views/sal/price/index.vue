@@ -96,7 +96,7 @@
         </template>
       </el-table-column>
     </el-table>
-    <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :page-size="query.pageSize" :current-page="query.pageNum" :page-sizes="[10,20,50,100]" @current-change="(p)=>{query.pageNum=p;loadList()}" @size-change="(s)=>{query.pageSize=s;loadList(1)}" style="margin-top:12px;justify-content:flex-end;display:flex" />
+    <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :page-size="query.pageSize" :current-page="query.pageNum" :page-sizes="[10,20,50,100]" @current-change="(p: number)=>{query.pageNum=p;loadList()}" @size-change="(s: number)=>{query.pageSize=s;loadList(1)}" style="margin-top:12px;justify-content:flex-end;display:flex" />
 
     <!-- 新增/编辑对话框 -->
     <el-dialog v-model="dialog.visible" :title="dialog.title" width="720px" @close="resetForm">
@@ -283,7 +283,9 @@
         </el-row>
       </el-form>
       <el-table :data="convertDialog.items" border size="small" max-height="420">
-        <el-table-column label="行" width="56" align="center">{{ $index + 1 }}</el-table-column>
+        <el-table-column label="行" width="56" align="center">
+          <template #default="{ $index }">{{ $index + 1 }}</template>
+        </el-table-column>
         <el-table-column label="物料编码" width="130" prop="materialCode" />
         <el-table-column label="物料名称" min-width="180" prop="materialName" show-overflow-tooltip />
         <el-table-column label="规格" width="130" prop="specification" show-overflow-tooltip />
@@ -631,7 +633,7 @@ const convertSummary = computed(() => {
   for (const it of convertDialog.items) {
     const taxInclPrice = Number(it.unitPrice || 0)
     const qty = Number(it.qty || 0)
-    const rate = Number(it.taxRate == null || it.taxRate === '' ? 13 : it.taxRate)
+    const rate = Number(it.taxRate == null || String(it.taxRate) === '' ? 13 : it.taxRate)
     // 含税单价: total = price * qty, undisc = total / (1 + rate/100), tax = total - undisc
     const lineTotal = taxInclPrice * qty
     const lineUndisc = lineTotal / (1 + rate / 100)

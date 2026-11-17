@@ -56,7 +56,7 @@
           <el-button size="small" link type="primary" @click="onViewLines(row)">明细</el-button>
           <el-button v-hasPermi="'wms:stockout:list'" size="small" link type="primary" @click="router.push({ path: '/sal/stock-out', query: { saleOrderNo: row.soNo } })">出库记录</el-button>
           <el-button v-hasPermi="'sal:order:list'" size="small" link type="primary" :loading="printLoadingId === row.soId" :disabled="printLoadingId != null" @click="openPrint(row)">打印</el-button>
-          <el-dropdown trigger="click" @command="command => onMoreCommand(command, row)">
+          <el-dropdown trigger="click" @command="(command: string) => onMoreCommand(command, row)">
             <el-button size="small" link type="primary" aria-label="更多订单操作">更多</el-button>
             <template #dropdown><el-dropdown-menu>
               <el-dropdown-item command="view" v-if="hasPermission('sal:order:list')">详情</el-dropdown-item>
@@ -564,7 +564,7 @@ const readonly = ref(false)
 const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
 const dialogTitle = computed(() => (form.soId ? (readonly.value ? '销售订单详情' : '编辑销售订单') : '新增销售订单'))
-const form = reactive<Partial<SalSalesOrder>>({
+const form = reactive<Partial<SalSalesOrder> & { deliveryAddress?: string }>({
   soNo: '', customerOrderNo: '', soType: '', customerId: undefined as any, customerCode: '', customerName: '',
   contactName: '', contactPhone: '', salesRepId: undefined,
   soDate: '', deliveryDate: '', currency: 'CNY', taxRate: 0.13,

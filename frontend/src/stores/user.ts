@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { authApi, type UserInfoResp, type LoginData } from '@/api'
 import type { SysMenu, SysUser } from '@/types/models'
 
-export { type LoginForm, type UserInfo, type MenuItem }
+export { type LoginForm, type UserInfo }
 
 type LoginForm = LoginData
 interface UserInfo {
@@ -112,7 +112,7 @@ export const useUserStore = defineStore('user', () => {
 }, {
   persist: {
     key: STORE_KEY,
-    pick: ['token'],
+    paths: ['token'],
     /** 反序列化前再清洗一道，兼容更早启动但 pick 不生效的场景 */
     beforeRestore: (ctx) => { sanitizePersistedCache() },
     /** 序列化前也再按 pick 白名单缩一次 */

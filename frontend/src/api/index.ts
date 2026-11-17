@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import type { Page, SysUser, SysRole, SysMenu, SysDept, SysOperLog, PdmMaterialCategory, PdmMaterial, PdmMaterialSupplier, PdmMaterialAlternate, PdmProcessRoute, PdmProcessStep, TableDataInfo,
+import type { SysUser, SysRole, SysMenu, SysDept, SysOperLog, PdmBom, PdmBomLine, PdmCustomerMaterialMap, PdmMaterialCategory, PdmMaterial, PdmMaterialSupplier, PdmMaterialAlternate, PdmProcessRoute, PdmProcessStep,
   PmmWorkOrder, PmmWorkOrderBom, PmmProcessTask, PmmWorkReport, PmmQualityDefect, PmmSchedulePlan, PmmKanbanCard, PmmDefectCode, PmProject, PmProjectAttachment, PmProjectCategory, HrmEmployee, HrmEmployeeAttachment,
   ScmPurchaseRequisition, ScmPurchaseOrder, ScmDeliveryNote, ScmPurchaseReturn, ScmSupplierPrice, ScmSupplier, ScmPurchaseRequisitionLine, ScmPurchaseOrderLine,
   ScmApPayable, ScmApPayableLine, ScmApPaymentPlan, ScmApPayment, FinVoucherInterface,
@@ -11,6 +11,8 @@ import type { Page, SysUser, SysRole, SysMenu, SysDept, SysOperLog, PdmMaterialC
   FasOrder, FasBom, FasStep, FasRecord, FasProductStock,
   CompanyProfile, CompanyFactory, CompanyCodingRule, CompanyParam,
   SysNotice, SysNoticeRead, NoticeCountResp, NoticeListQ, NoticeUserListQ } from '@/types/models'
+import type { WmsWarehouse, WmsInventory, WmsStockIn, WmsStockOut, PmmJig, PmmJigLog, ScmDeliveryNoteLine, ScmPurchaseReturnLine, SalForecast, SalForecastVersion } from '@/types/models'
+import type { Page, TableDataInfo } from '@/types/api'
 
 // ============ 认证接口 ============
 export interface LoginData { username: string; password: string; captcha?: string; uuid?: string }

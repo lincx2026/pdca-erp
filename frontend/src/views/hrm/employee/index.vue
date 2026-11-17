@@ -264,14 +264,15 @@ function openEdit(row: HrmEmployee) {
 }
 
 async function submitEdit() {
-  await editFormRef.value?.validate()
+  if (editDlg.saving) return
   editDlg.saving = true
   try {
+    await editFormRef.value?.validate()
     if (editDlg.isNew) { await hrmEmployeeApi.add(editDlg.form); ElMessage.success('新增成功') }
     else { await hrmEmployeeApi.edit(editDlg.form); ElMessage.success('修改成功') }
     editDlg.show = false
     loadList()
-  } catch (e: any) { ElMessage.error(e.message || '保存失败') }
+  } catch { /* 请求错误由全局拦截器提示，校验错误由表单显示 */ }
   finally { editDlg.saving = false }
 }
 

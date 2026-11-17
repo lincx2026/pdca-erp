@@ -187,7 +187,7 @@ const loadData = async () => {
   // 加载校准日志
   if (props.jig?.jigId) {
     try {
-      const resp: any = await pmJigApi.logList({ jigId: props.jig.jigId, eventType: 'CALIBRATE' })
+      const resp: any = await pmJigApi.logList({ pageNum: 1, pageSize: 200, jigId: props.jig.jigId, eventType: 'CALIBRATE' })
       logList.value = (resp?.rows) || []
     } catch (e) { console.error('print load logs', e); logList.value = [] }
   }
