@@ -7,6 +7,7 @@ import com.pcba.erp.pmm.entity.HrmEmployee;
 import com.pcba.erp.pmm.mapper.HrmEmployeeMapper;
 import com.pcba.erp.pmm.service.IHrmEmployeeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.sql.SQLException;
 
 @Service
 @RequiredArgsConstructor
@@ -56,7 +58,22 @@ public class HrmEmployeeServiceImpl implements IHrmEmployeeService {
         if (entity.getEmployeeNo() == null || entity.getEmployeeNo().trim().isEmpty())
             throw new ServiceException("工号不能为空");
         if (entity.getStatus() == null) entity.setStatus(1);
-        mapper.insert(entity);
+        try {
+            mapper.insert(entity);
+        } catch (DuplicateKeyException e) {
+            // PostgreSQL 的唯一约束负责并发保护；只转换明确属于工号的冲突。
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                if (cause instanceof SQLException) {
+                    SQLException sql = (SQLException) cause;
+                    String message = sql.getMessage();
+                    if ("23505".equals(sql.getSQLState()) && message != null &&
+                            message.split("\\r?\\n", 2)[0].endsWith("\"hrm_employee_uk_employee_no\"")) {
+                        throw new ServiceException("工号重复");
+                    }
+                }
+            }
+            throw e;
+        }
         return entity.getEmployeeId();
     }
 
