@@ -68,7 +68,7 @@ else
   docker tag redis:7.2.4-alpine "$loaded_redis"
   echo 'Preloading verified images on ECS.'
   if ssh "${ssh_args[@]}" "$target" \
-      "timeout -k 5s 360s bash -s -- $GITHUB_SHA $BACKEND_IMAGE $backend_id $FRONTEND_IMAGE $frontend_id $redis_id" \
+      "timeout -k 5s 420s bash -s -- $GITHUB_SHA $BACKEND_IMAGE $backend_id $FRONTEND_IMAGE $frontend_id $redis_id" \
       < scripts/ecs_preload_images.sh; then
     echo 'All ECS images verified locally.'
   else
