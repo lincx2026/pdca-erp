@@ -180,4 +180,50 @@ fi
         self.assertIn("up -d redis",log)
         self.assertNotIn("up -d postgres",log)
 
+class RemotePreloadTests(unittest.TestCase):
+    def test_verified_registry_preload_reuses_cache_and_rejects_wrong_image(self):
+        with tempfile.TemporaryDirectory(prefix="pcba-preload-test-") as temp:
+            directory = Path(temp)
+            docker = directory / "docker"
+            docker.write_text('''#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$PCBA_TEST_LOG"
+case "$1 $2" in
+  'image inspect')
+    test "$5" != "$BACKEND_ID" || test -f "$PCBA_TEST_PULL"
+    printf '%s\\n' "$5"
+    ;;
+  "pull $BACKEND_REF")
+    if [[ "$PCBA_TEST_WRONG" != 1 ]]; then touch "$PCBA_TEST_PULL"; fi
+    ;;
+esac
+''', encoding="utf-8", newline="\n")
+            docker.chmod(0o755)
+            log = directory / "commands.log"
+            fetched = directory / "pulled"
+            ref = "ghcr.io/test/erp-backend@sha256:" + "f" * 64
+            backend_id, frontend_id, redis_id = ("sha256:" + char * 64 for char in "abc")
+            revision = "d" * 40
+            for wrong in ("0", "1"):
+                with self.subTest(wrong=wrong):
+                    fetched.unlink(missing_ok=True)
+                    log.write_text("", encoding="utf-8")
+                    env = {**os.environ, "BACKEND_ID": backend_id, "BACKEND_REF": ref,
+                           "PCBA_TEST_WRONG": wrong, "PCBA_TEST_PULL": posix(fetched),
+                           "PCBA_TEST_LOG": posix(log)}
+                    result = subprocess.run([BASH, "-c", 'export PATH="$1:$PATH"; shift; exec bash "$@"',
+                        "--", posix(directory), posix(ROOT / "scripts/ecs_preload_images.sh"),
+                        revision, ref, backend_id, ref, frontend_id, redis_id],
+                        env=env, capture_output=True, text=True, timeout=15)
+                    calls = log.read_text(encoding="utf-8")
+                    self.assertIn("pull " + ref, calls)
+                    if wrong == "0":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(1, calls.count("pull "))
+                        self.assertIn("tag " + backend_id + " pcba-erp/backend:ci-" + revision, calls)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertNotIn("tag ", calls)
+
+
 if __name__=="__main__": unittest.main()

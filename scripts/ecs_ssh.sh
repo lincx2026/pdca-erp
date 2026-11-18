@@ -66,10 +66,19 @@ else
   loaded_redis="pcba-erp/redis:ci-$GITHUB_SHA"
   docker tag "$BACKEND_IMAGE" "$loaded_backend"; docker tag "$FRONTEND_IMAGE" "$loaded_frontend"
   docker tag redis:7.2.4-alpine "$loaded_redis"
-  # A cancelled SSH session can leave its Docker pull client holding the old lock.
-  ssh "${ssh_args[@]}" "$target" "pkill -TERM -f '^docker pull ghcr.io/lincx2026/pdca-erp-(backend|frontend)@sha256:[a-f0-9]{64}$' || true"
-  docker save "$loaded_backend" "$loaded_frontend" "$loaded_redis" | gzip -1 | \
-    ssh "${ssh_args[@]}" "$target" "bash -o pipefail -c 'gzip -d | docker load'"
+  echo 'Preloading verified images on ECS.'
+  if ssh "${ssh_args[@]}" "$target" \
+      "timeout -k 5s 420s bash -s -- $GITHUB_SHA $BACKEND_IMAGE $backend_id $FRONTEND_IMAGE $frontend_id $redis_id" \
+      < scripts/ecs_preload_images.sh; then
+    echo 'All ECS images verified locally.'
+  else
+    echo 'ECS preload incomplete; transferring verified images over SSH.'
+    # A cancelled SSH session can leave its Docker pull client holding the old lock.
+    ssh "${ssh_args[@]}" "$target" "pkill -TERM -f '^docker pull ghcr.io/lincx2026/pdca-erp-(backend|frontend)@sha256:[a-f0-9]{64}$' || true"
+    docker save "$loaded_backend" "$loaded_frontend" "$loaded_redis" | gzip -1 | \
+      ssh "${ssh_args[@]}" "$target" "bash -o pipefail -c 'gzip -d | docker load'"
+    echo 'ECS archive loaded.'
+  fi
   latest="$(GH_TOKEN="$REGISTRY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
   [[ "$latest" == "$GITHUB_SHA" ]] || { echo 'main advanced during image transfer; no services changed.'; exit 2; }
   ssh "${ssh_args[@]}" "$target" \

@@ -21,7 +21,7 @@ flowchart LR
 - PR 只测试和构建，不访问部署凭据、不发布镜像。
 - CI 使用独立 PostgreSQL/Redis，执行 5 项 OSS 单元测试、6 项 PostgreSQL 集成测试及部署脚本测试，不连接生产数据库或 OSS。
 - 前端运行 `npm run build`。原有严格类型检查错误尚未修复，因此 `type-check` 暂未设为 CI 门禁。
-- `main` 检查通过后生成两个 `linux/amd64` 镜像，标签为提交 SHA；Actions 按 `@sha256:...` 摘要拉取，再与专用 Redis 镜像一起经 SSH 压缩流传到 ECS。ECS 启动前核对加载后的镜像 ID，使用包含提交 SHA 的项目专用本地标签。
+- `main` 检查通过后生成两个 `linux/amd64` 镜像，标签为提交 SHA；Actions 按 `@sha256:...` 摘要拉取并解析镜像 ID。ECS 先复用已校验的本地镜像或按摘要直接拉取；预载入失败后回退到 SSH 压缩传输。ECS 启动前核对镜像 ID，使用包含提交 SHA 的项目专用本地标签。
 - 镜像示例：`ghcr.io/lincx2026/pdca-erp-backend`、`ghcr.io/lincx2026/pdca-erp-frontend`。
 - Actions 将完整 Git bundle 经 SSH 传到临时目录，并核对 main 提交，ECS 无需直接访问 github.com；临时源码包在结束时清理。
 - 自动部署仅作用于 `main`；手动运行默认只检查和发布镜像，勾选 deploy 才执行 CD。仓库未设置 DEPLOY_ENABLED 时跳过 CD。
